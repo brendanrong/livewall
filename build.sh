@@ -15,6 +15,12 @@ APP="$HERE/$APP_NAME.app"
 # NOT notarisable).
 SIGN_IDENTITY="Developer ID Application: Brendan Rong (VTMKE23N5G)"
 
+# Minimum macOS version this binary will run on. Without an explicit -target
+# flag, swiftc embeds the compiler's host SDK as the minimum (e.g. macOS 26
+# if you're building on macOS 26), which locks out everyone on older systems
+# even though Info.plist claims wider compatibility.
+DEPLOYMENT_TARGET="13.0"
+
 if ! command -v swiftc >/dev/null 2>&1; then
     echo "❌ swiftc not found. Install Xcode Command Line Tools first:"
     echo "    xcode-select --install"
@@ -65,17 +71,37 @@ if [ ${#SWIFT_FILES[@]} -eq 0 ]; then
     exit 1
 fi
 
-swiftc \
-    -O \
-    -framework Cocoa \
-    -framework AVFoundation \
-    -framework AVKit \
-    -framework WebKit \
-    -framework UniformTypeIdentifiers \
-    -framework ServiceManagement \
-    -framework Carbon \
-    -o "$APP/Contents/MacOS/$APP_NAME" \
-    "${SWIFT_FILES[@]}"
+# Build separate per-architecture binaries targeting the minimum macOS
+# version, then merge them into one universal binary so the app runs on
+# both Apple Silicon and Intel Macs from macOS $DEPLOYMENT_TARGET upward.
+ARM_BIN="$APP/Contents/MacOS/${APP_NAME}_arm64"
+X86_BIN="$APP/Contents/MacOS/${APP_NAME}_x86_64"
+FINAL_BIN="$APP/Contents/MacOS/$APP_NAME"
+
+compile_for_arch() {
+    local target="$1"
+    local out="$2"
+    echo "  → $target"
+    swiftc \
+        -O \
+        -target "$target" \
+        -framework Cocoa \
+        -framework AVFoundation \
+        -framework AVKit \
+        -framework WebKit \
+        -framework UniformTypeIdentifiers \
+        -framework ServiceManagement \
+        -framework Carbon \
+        -o "$out" \
+        "${SWIFT_FILES[@]}"
+}
+
+compile_for_arch "arm64-apple-macos${DEPLOYMENT_TARGET}"  "$ARM_BIN"
+compile_for_arch "x86_64-apple-macos${DEPLOYMENT_TARGET}" "$X86_BIN"
+
+echo "→ Merging into universal binary…"
+lipo -create "$ARM_BIN" "$X86_BIN" -output "$FINAL_BIN"
+rm -f "$ARM_BIN" "$X86_BIN"
 
 echo "→ Marking executable…"
 chmod +x "$APP/Contents/MacOS/$APP_NAME"

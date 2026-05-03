@@ -20,7 +20,11 @@ set -euo pipefail
 APP_NAME="LiveWall"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="$HERE/$APP_NAME.app"
-DMG="$HERE/$APP_NAME.dmg"
+
+# Match the versioned DMG name produced by make_dmg.sh.
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+    "$HERE/Sources/Info.plist" 2>/dev/null || echo dev)"
+DMG="$HERE/${APP_NAME}-${VERSION}.dmg"
 
 SIGN_IDENTITY="Developer ID Application: Brendan Rong (VTMKE23N5G)"
 NOTARY_PROFILE="LiveWall-Notary"

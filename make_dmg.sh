@@ -7,9 +7,16 @@ set -euo pipefail
 APP_NAME="LiveWall"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="$HERE/$APP_NAME.app"
-DMG="$HERE/$APP_NAME.dmg"
+
+# Pull the version straight out of Info.plist so the DMG filename always
+# matches the build (e.g. LiveWall-1.2.dmg). Falls back to "dev" if the
+# version key is missing.
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+    "$HERE/Sources/Info.plist" 2>/dev/null || echo dev)"
+
+DMG="$HERE/${APP_NAME}-${VERSION}.dmg"
 STAGE="$(mktemp -d -t livewall-dmg)"
-VOLNAME="$APP_NAME"
+VOLNAME="$APP_NAME ${VERSION}"
 
 cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
