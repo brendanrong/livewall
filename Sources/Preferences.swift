@@ -47,6 +47,8 @@ final class Preferences {
         static let lastSettingsSection = "lastSettingsSection"
         static let crossFade = "crossFade"
         static let perScreenSources = "perScreenSources"
+        static let hasCompletedFirstLaunch = "hasCompletedFirstLaunch"
+        static let showDockIcon = "showDockIcon"
 
         static let allKeys: [String] = [
             contentMode, contentPath, rotationInterval, muted, opacity, allSpaces,
@@ -54,7 +56,7 @@ final class Preferences {
             hotkeyEnabled, hotkeyKeyCode, hotkeyModifiers,
             recentSources, wallpaperEnabled,
             pauseOnBattery, pauseOnFullscreen, shuffle, lastSettingsSection,
-            crossFade, perScreenSources,
+            crossFade, perScreenSources, hasCompletedFirstLaunch, showDockIcon,
         ]
     }
 
@@ -208,6 +210,23 @@ final class Preferences {
     var shuffle: Bool {
         get { defaults.bool(forKey: Key.shuffle) }
         set { defaults.set(newValue, forKey: Key.shuffle) }
+    }
+
+    /// True after the user has seen Settings at least once (auto-shown on
+    /// first launch). Stays true forever after that.
+    var hasCompletedFirstLaunch: Bool {
+        get { defaults.bool(forKey: Key.hasCompletedFirstLaunch) }
+        set { defaults.set(newValue, forKey: Key.hasCompletedFirstLaunch) }
+    }
+
+    /// Whether the LiveWall app icon shows in the macOS dock. Default true.
+    /// When false, the app behaves as a traditional menu-bar utility.
+    var showDockIcon: Bool {
+        get {
+            if defaults.object(forKey: Key.showDockIcon) == nil { return true }
+            return defaults.bool(forKey: Key.showDockIcon)
+        }
+        set { defaults.set(newValue, forKey: Key.showDockIcon) }
     }
 
     var crossFade: Bool {

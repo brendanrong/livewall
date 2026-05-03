@@ -326,9 +326,13 @@ final class WallpaperController {
             s = "https://" + s
         }
         if let id = extractYouTubeID(s) {
-            return "https://www.youtube.com/embed/\(id)" +
+            // youtube-nocookie.com is the privacy-enhanced embed domain.
+            // It avoids YouTube's "Error 153: video player configuration"
+            // failure that the regular youtube.com embed often returns
+            // inside a WKWebView, and it skips most cookie/origin checks.
+            return "https://www.youtube-nocookie.com/embed/\(id)" +
                 "?autoplay=1&mute=1&loop=1&playlist=\(id)" +
-                "&controls=0&modestbranding=1&playsinline=1&rel=0&disablekb=1"
+                "&controls=0&modestbranding=1&rel=0&iv_load_policy=3"
         }
         return s
     }

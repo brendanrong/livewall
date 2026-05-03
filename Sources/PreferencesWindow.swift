@@ -16,6 +16,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var sourcePathLabel: NSTextField!
     private var browseButton: NSButton!
     private var launchAtLoginToggle: NSSwitch!
+    private var showDockIconToggle: NSSwitch!
 
     // MARK: Display
     private var screenCheckList: NSStackView!
@@ -396,6 +397,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
                                 title: "Launch at login",
                                 control: launchAtLoginToggle)
 
+        showDockIconToggle = smallSwitch(target: self, action: #selector(showDockIconChanged))
+        let dockRow = makeRow(icon: "dock.rectangle",
+                              title: "Show in dock",
+                              control: showDockIconToggle)
+
         let resetBtn = NSButton(title: "Reset All Settings…",
                                 target: self, action: #selector(resetAllClicked))
         resetBtn.bezelStyle = .rounded
@@ -405,7 +411,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
                                title: "Reset",
                                control: resetBtn)
 
-        let systemCard = makeCard([launchRow, resetRow])
+        let systemCard = makeCard([launchRow, dockRow, resetRow])
         let systemSection = makeSection(symbol: "gearshape",
                                         title: "System",
                                         content: systemCard)
@@ -689,7 +695,15 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         }
         feedbackBtn.bezelStyle = .rounded
 
-        let buttonRow = NSStackView(views: [supportBtn, feedbackBtn])
+        let updateBtn = NSButton(title: "  Check for updates",
+                                 target: self, action: #selector(checkForUpdatesClicked))
+        if let img = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil) {
+            updateBtn.image = img
+            updateBtn.imagePosition = .imageLeft
+        }
+        updateBtn.bezelStyle = .rounded
+
+        let buttonRow = NSStackView(views: [supportBtn, feedbackBtn, updateBtn])
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 12
 
@@ -884,6 +898,9 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             launchAtLoginToggle.toolTip = "Requires macOS 13 or later"
         }
 
+        // Show in dock
+        showDockIconToggle.state = prefs.showDockIcon ? .on : .off
+
         // Display
         rebuildScreenCheckboxes()
         spacesToggle.state = prefs.allSpaces ? .on : .off
@@ -1061,6 +1078,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         alert.accessoryView = input
         alert.addButton(withTitle: "Set")
         alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = input
         if alert.runModal() == .alertFirstButtonReturn {
             let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -1278,6 +1296,9 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         alert.accessoryView = input
         alert.addButton(withTitle: "Set")
         alert.addButton(withTitle: "Cancel")
+        // Without this the text field isn't first responder on open, so the
+        // user's paste shortcut has nothing to land in.
+        alert.window.initialFirstResponder = input
         if alert.runModal() == .alertFirstButtonReturn {
             controller?.setWebURL(input.stringValue)
         }
@@ -1313,6 +1334,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             alert.runModal()
             launchAtLoginToggle.state = (service.status == .enabled) ? .on : .off
         }
+    }
+
+    @objc private func showDockIconChanged() {
+        Preferences.shared.showDockIcon = (showDockIconToggle.state == .on)
+        (NSApp.delegate as? AppDelegate)?.applyDockIconVisibility()
     }
 
     @objc private func resetAllClicked() {
@@ -1422,6 +1448,10 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         // land in the form's response sheet — no mail client involved.
         guard let url = URL(string: FEEDBACK_FORM_URL) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func checkForUpdatesClicked() {
+        (NSApp.delegate as? AppDelegate)?.checkForUpdates()
     }
 
     @objc private func quitClicked() {
