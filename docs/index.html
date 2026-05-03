@@ -11,14 +11,14 @@
 <link rel="icon" type="image/png" href="icon.png">
 <style>
   :root {
-    --text: #111111;
-    --text-secondary: #666666;
-    --text-tertiary: #999999;
-    --bg: #FFFFFF;
-    --border: #EBEBEB;
+    --text: #FAFAFA;
+    --text-secondary: #999999;
+    --text-tertiary: #666666;
+    --bg: #0A0A0A;
+    --border: #1F1F1F;
     --brand-orange: #D85A30;
     --brand-pink: #E8336F;
-    --green: #1D9E73;
+    --green: #2DD4A4;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -42,7 +42,7 @@
     height: 96px;
     border-radius: 22px;
     margin-bottom: 28px;
-    box-shadow: 0 4px 16px rgba(216, 90, 48, 0.18);
+    box-shadow: 0 8px 32px rgba(232, 51, 111, 0.22);
   }
   h1 {
     font-size: 38px;
@@ -56,7 +56,9 @@
     margin-bottom: 32px;
   }
   .cta {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     background: var(--text);
     color: var(--bg);
     padding: 14px 30px;
@@ -66,13 +68,19 @@
     text-decoration: none;
     transition: transform 0.1s ease, background 0.2s ease;
   }
-  .cta:hover { background: #000; transform: translateY(-1px); }
+  .cta:hover { background: #FFFFFF; transform: translateY(-1px); }
   .cta:active { transform: translateY(0); }
+  .cta .apple-logo {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: -2px; /* optical alignment with the text baseline */
+  }
   .trust {
     margin-top: 18px;
     font-size: 13px;
     color: var(--text-tertiary);
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
@@ -144,7 +152,12 @@
     <img class="app-icon" src="icon.png" alt="LiveWall app icon">
     <h1>LiveWall</h1>
     <p class="tagline">Live video wallpapers for your Mac.</p>
-    <a class="cta" href="https://github.com/brendanrong/livewall/releases/latest/download/LiveWall.dmg">Download for macOS</a>
+    <a class="cta" href="https://github.com/brendanrong/livewall/releases/latest/download/LiveWall.dmg">
+      <svg class="apple-logo" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true">
+        <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/>
+      </svg>
+      <span>Download for macOS</span>
+    </a>
     <p class="trust">
       <svg class="seal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <polyline points="20 6 9 17 4 12"/>
