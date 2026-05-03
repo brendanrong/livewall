@@ -117,6 +117,64 @@
     max-width: 520px;
     margin: 0 auto;
   }
+  /* Releases */
+  .releases { margin-bottom: 64px; }
+  .releases h2 {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    letter-spacing: -0.3px;
+  }
+  .release {
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .release:last-of-type {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .release-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .release-version {
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .release-date {
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+  .release-changes {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .release-changes li {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    padding-left: 18px;
+    position: relative;
+  }
+  .release-changes li::before {
+    content: "·";
+    position: absolute;
+    left: 6px;
+    color: var(--text-tertiary);
+  }
+  .releases-link {
+    display: inline-block;
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-top: 16px;
+  }
+  .releases-link:hover { color: var(--text); }
   /* Footer */
   footer {
     border-top: 0.5px solid var(--border);
@@ -174,6 +232,44 @@
 
   <section class="blurb">
     <p>Built on late nights to keep my OLED happy. If your desktop could use a bit more life, give it a spin.</p>
+  </section>
+
+  <section class="releases">
+    <h2>Releases</h2>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v1.1</span>
+        <span class="release-date">May 2026</span>
+      </div>
+      <ul class="release-changes">
+        <li>Redesigned Settings window with cards, section headers, and row icons</li>
+        <li>Dock icon (with optional toggle to hide in General → Show in dock)</li>
+        <li>Settings opens automatically on first launch</li>
+        <li>Check for updates button in the About pane</li>
+        <li>YouTube embeds fixed (Error 153)</li>
+        <li>Cmd+V now pastes into the Set Web URL dialog</li>
+        <li>Cross-fade no longer glitches when switching sources rapidly</li>
+        <li>Empty folder selection shows a clear alert instead of a black wallpaper</li>
+        <li>Source row no longer stretches the window when filenames are long</li>
+      </ul>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v1.0</span>
+        <span class="release-date">April 2026</span>
+      </div>
+      <ul class="release-changes">
+        <li>Initial release</li>
+        <li>Local video files, folders with rotation, or any web URL (YouTube auto-converts to a muted looping embed)</li>
+        <li>Multi-display with per-display source overrides</li>
+        <li>Cross-fade, shuffle, opacity, configurable global hotkey</li>
+        <li>Pause on battery and pause when fullscreen</li>
+      </ul>
+    </div>
+
+    <a class="releases-link" href="https://github.com/brendanrong/livewall/releases">See all releases on GitHub →</a>
   </section>
 
   <footer>
