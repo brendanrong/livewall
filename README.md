@@ -48,9 +48,13 @@ Then from this folder:
 - Run your monitor's pixel-refresh cycle weekly. LG/ASUS/Samsung OLEDs all have one. LiveWall complements that, doesn't replace it.
 - Pause-on-fullscreen is on by default, which is useful — but don't leave the wallpaper paused for long stretches when you're at the desk.
 
-## How it works (briefly)
+## How it works
 
-LiveWall creates a borderless `NSWindow` per target display at the macOS desktop window level (above the OS wallpaper, below your desktop icons) and renders an `AVPlayerLayer` (for video) or `WKWebView` (for web URLs) into each one. Audio only plays on the primary display so you don't get N copies overlapping. Windows ignore mouse events, so clicks pass through to the desktop. No private APIs, no kexts, no admin password, no third-party dependencies.
+LiveWall plays a video behind your desktop icons. Click anything on your desktop or in the menu bar and it all works normally. The video just loops quietly in the background.
+
+If you have more than one display, each gets its own wallpaper. Only the main display plays audio so you're not hearing the same track twice.
+
+Built entirely on standard macOS frameworks. No system extensions, no admin password, no third-party libraries, no tracking.
 
 ## Files
 
