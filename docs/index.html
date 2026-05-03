@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiveWall — Live video wallpapers for your Mac</title>
+<meta name="description" content="A native macOS menu-bar app that turns your desktop into a video wallpaper. Built for OLED displays. Free, signed, and notarized by Apple.">
+<meta property="og:title" content="LiveWall">
+<meta property="og:description" content="Live video wallpapers for your Mac. Built for OLED displays.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+  :root {
+    --text: #111111;
+    --text-secondary: #666666;
+    --text-tertiary: #999999;
+    --bg: #FFFFFF;
+    --border: #EBEBEB;
+    --brand-orange: #D85A30;
+    --brand-pink: #E8336F;
+    --green: #1D9E73;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 80px 24px 48px;
+  }
+  /* Hero block */
+  .hero { text-align: center; margin-bottom: 56px; }
+  .app-icon {
+    width: 96px;
+    height: 96px;
+    border-radius: 22px;
+    margin-bottom: 28px;
+    box-shadow: 0 4px 16px rgba(216, 90, 48, 0.18);
+  }
+  h1 {
+    font-size: 38px;
+    font-weight: 600;
+    letter-spacing: -0.8px;
+    margin-bottom: 8px;
+  }
+  .tagline {
+    font-size: 19px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+  }
+  .cta {
+    display: inline-block;
+    background: var(--text);
+    color: var(--bg);
+    padding: 14px 30px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: transform 0.1s ease, background 0.2s ease;
+  }
+  .cta:hover { background: #000; transform: translateY(-1px); }
+  .cta:active { transform: translateY(0); }
+  .trust {
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .trust .seal {
+    width: 14px;
+    height: 14px;
+    color: var(--green);
+    flex-shrink: 0;
+  }
+  .trust .sep { color: var(--border); }
+  /* Hero visual (gradient placeholder, swap with ./hero.png by changing background-image below) */
+  .hero-visual {
+    aspect-ratio: 16 / 10;
+    border-radius: 16px;
+    background-image: url('hero.png'), linear-gradient(135deg, #FF6B35 0%, #E8336F 100%);
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat;
+    margin-bottom: 56px;
+    border: 0.5px solid var(--border);
+  }
+  /* Blurb */
+  .blurb {
+    text-align: center;
+    margin-bottom: 64px;
+    padding: 0 24px;
+  }
+  .blurb p {
+    font-size: 17px;
+    color: var(--text);
+    line-height: 1.7;
+    max-width: 520px;
+    margin: 0 auto;
+  }
+  /* Footer */
+  footer {
+    border-top: 0.5px solid var(--border);
+    padding-top: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--text-tertiary);
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  footer a {
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+  footer a:hover { color: var(--text); }
+  .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  /* Responsive */
+  @media (max-width: 540px) {
+    main { padding: 56px 20px 32px; }
+    h1 { font-size: 30px; }
+    .tagline { font-size: 16px; }
+    .cta { padding: 12px 24px; font-size: 14px; }
+    footer { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <section class="hero">
+    <img class="app-icon" src="icon.png" alt="LiveWall app icon">
+    <h1>LiveWall</h1>
+    <p class="tagline">Live video wallpapers for your Mac.</p>
+    <a class="cta" href="https://github.com/brendanrong/livewall/releases/latest/download/LiveWall.dmg">Download for macOS</a>
+    <p class="trust">
+      <svg class="seal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      <span>Signed and notarized by Apple</span>
+      <span class="sep">·</span>
+      <span>macOS 13+</span>
+      <span class="sep">·</span>
+      <span>Free</span>
+    </p>
+  </section>
+
+  <section class="hero-visual" aria-label="LiveWall preview"></section>
+
+  <section class="blurb">
+    <p>Built on late nights to keep my OLED happy. If your desktop could use a bit more life, give it a spin.</p>
+  </section>
+
+  <footer>
+    <div>Built by Brendan · © 2026</div>
+    <div class="footer-links">
+      <a href="https://ko-fi.com/livewall">Buy me a coffee</a>
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLScOTXryCm9j5NXLCxL9HCOX9kE697IDE2bSSLkmjmLCMSKkdA/viewform">Send feedback</a>
+      <a href="https://github.com/brendanrong/livewall">Source on GitHub</a>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>
