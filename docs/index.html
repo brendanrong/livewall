@@ -293,5 +293,29 @@
   </footer>
 
 </main>
+<script>
+// Rewrite the Download button to point straight at the latest versioned DMG
+// so clicking it actually downloads instead of navigating to GitHub. We
+// can't hardcode the URL because the DMG filename includes the version
+// (e.g. LiveWall-1.2.dmg). If the API call fails (no network, rate limit,
+// etc.) the button falls back to the release page, which is still useful.
+(function () {
+  var cta = document.querySelector('.cta');
+  if (!cta) return;
+  fetch('https://api.github.com/repos/brendanrong/livewall/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.assets) return;
+      for (var i = 0; i < data.assets.length; i++) {
+        var asset = data.assets[i];
+        if (asset && asset.name && asset.name.toLowerCase().endsWith('.dmg')) {
+          cta.href = asset.browser_download_url;
+          return;
+        }
+      }
+    })
+    .catch(function () {});
+})();
+</script>
 </body>
 </html>
