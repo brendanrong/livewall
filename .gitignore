@@ -1,0 +1,19 @@
+# Build outputs (regenerable via build.sh / make_dmg.sh / notarize.sh)
+LiveWall.app/
+LiveWall.dmg
+
+# macOS clutter
+.DS_Store
+
+# Editor / OS clutter
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Xcode (if anyone ever opens this in Xcode)
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.build/
+Package.resolved
