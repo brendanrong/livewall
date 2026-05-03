@@ -10,7 +10,13 @@ set -euo pipefail
 APP_NAME="LiveWall"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="$HERE/$APP_NAME.app"
-DMG="$HERE/$APP_NAME.dmg"
+
+# Pull the version out of Info.plist so the DMG filename is versioned
+# (e.g. LiveWall-1.3.dmg). notarize.sh derives the same path the same way.
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+    "$HERE/Sources/Info.plist" 2>/dev/null || echo dev)"
+DMG="$HERE/${APP_NAME}-${VERSION}.dmg"
+
 BG_SRC="$HERE/Resources/dmg-background.png"
 VOLNAME="$APP_NAME"
 
