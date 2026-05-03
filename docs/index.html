@@ -85,11 +85,11 @@
     flex-shrink: 0;
   }
   .trust .sep { color: var(--border); }
-  /* Hero visual (gradient placeholder, swap with ./hero.png by changing background-image below) */
+  /* Hero visual: uses ./hero.jpg if present, falls back to gradient if missing. */
   .hero-visual {
     aspect-ratio: 16 / 10;
     border-radius: 16px;
-    background-image: url('hero.png'), linear-gradient(135deg, #FF6B35 0%, #E8336F 100%);
+    background-image: url('hero.jpg'), linear-gradient(135deg, #FF6B35 0%, #E8336F 100%);
     background-size: cover, cover;
     background-position: center, center;
     background-repeat: no-repeat;
