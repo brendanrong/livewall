@@ -1,34 +1,28 @@
 #!/bin/bash
-# Builds LiveWall.app (if needed) and packages it into a styled
-# LiveWall-X.Y.dmg with a branded background, positioned icons, and a
-# drag-to-install layout.
+# Builds LiveWall.app (if needed) and packages it into LiveWall.dmg with a
+# custom installer layout: dark background, icons positioned, toolbar hidden.
 #
-# Requires `create-dmg` (one-time install: `brew install create-dmg`).
+# The background is generated from Resources/make_dmg_background.py — re-run
+# that script if you want to tweak the design.
 
 set -euo pipefail
 
 APP_NAME="LiveWall"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="$HERE/$APP_NAME.app"
+DMG="$HERE/$APP_NAME.dmg"
+BG_SRC="$HERE/Resources/dmg-background.png"
+VOLNAME="$APP_NAME"
 
-# Pull the version straight out of Info.plist so the DMG filename always
-# matches the build (e.g. LiveWall-1.2.dmg).
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-    "$HERE/Sources/Info.plist" 2>/dev/null || echo dev)"
-
-DMG="$HERE/${APP_NAME}-${VERSION}.dmg"
-BACKGROUND="$HERE/Resources/dmg-background.png"
-STAGE="$(mktemp -d -t livewall-dmg)"
-VOLNAME="$APP_NAME ${VERSION}"
-
-cleanup() { rm -rf "$STAGE"; }
-trap cleanup EXIT
-
-if ! command -v create-dmg >/dev/null 2>&1; then
-    echo "❌ create-dmg not found. Install it once:"
-    echo "    brew install create-dmg"
-    exit 1
-fi
+# Window dimensions and icon positions — keep in sync with the background PNG.
+WIN_X=200
+WIN_Y=200
+WIN_W=600
+WIN_H=420
+ICON_LEFT_X=160
+ICON_RIGHT_X=440
+ICON_Y=200
+ICON_SIZE=128
 
 # 1. Build the app if it isn't there
 if [ ! -d "$APP" ]; then
@@ -41,36 +35,115 @@ if [ ! -d "$APP" ]; then
     exit 1
 fi
 
-# 2. Stage just the .app. create-dmg will add the Applications shortcut
-#    itself via --app-drop-link.
-echo "→ Staging DMG contents…"
-cp -R "$APP" "$STAGE/"
+# 2. Make sure we have the background image
+if [ ! -f "$BG_SRC" ]; then
+    echo "→ DMG background not found, regenerating…"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 "$HERE/Resources/make_dmg_background.py"
+    else
+        echo "❌ python3 missing — install it or generate Resources/dmg-background.png by hand."
+        exit 1
+    fi
+fi
 
-# 3. Remove any existing DMG so create-dmg doesn't refuse.
+# 3. Clean any previous output
 rm -f "$DMG"
+TMP_DMG="$HERE/.${APP_NAME}-tmp.dmg"
+rm -f "$TMP_DMG"
 
-# 4. Create the DMG with custom background, window size, and icon
-#    positions matching the arrow drawn on the background.
-echo "→ Creating ${DMG}…"
-create-dmg \
-    --volname "$VOLNAME" \
-    --background "$BACKGROUND" \
-    --window-pos 200 120 \
-    --window-size 540 380 \
-    --icon-size 96 \
-    --icon "$APP_NAME.app" 130 190 \
-    --hide-extension "$APP_NAME.app" \
-    --app-drop-link 410 190 \
-    --no-internet-enable \
-    "$DMG" \
-    "$STAGE" >/dev/null
+# Make sure no stale mount is around from an aborted previous run
+if [ -d "/Volumes/$VOLNAME" ]; then
+    echo "→ Detaching stale /Volumes/$VOLNAME …"
+    hdiutil detach "/Volumes/$VOLNAME" -force >/dev/null 2>&1 || true
+fi
 
-# 5. Sanity check
+# 4. Size the writable DMG: app size + headroom for layout metadata.
+APP_SIZE_MB="$(du -sm "$APP" | awk '{print $1}')"
+DMG_SIZE_MB=$((APP_SIZE_MB + 25))
+
+echo "→ Creating writable DMG (${DMG_SIZE_MB} MB)…"
+# Default format for an empty DMG created from -size is already read-write
+# (UDIF). Don't pass -format here — it requires -srcfolder/-srcdevice.
+hdiutil create \
+    -size "${DMG_SIZE_MB}m" \
+    -fs HFS+ \
+    -volname "$VOLNAME" \
+    -ov \
+    "$TMP_DMG" >/dev/null
+
+# 5. Mount it
+echo "→ Mounting…"
+ATTACH_OUT="$(hdiutil attach "$TMP_DMG" -readwrite -noverify -noautoopen)"
+DEVICE="$(echo "$ATTACH_OUT" | grep -E '^/dev/' | head -1 | awk '{print $1}')"
+MOUNT="/Volumes/$VOLNAME"
+
+cleanup() {
+    if [ -d "$MOUNT" ]; then
+        hdiutil detach "$DEVICE" -force >/dev/null 2>&1 || true
+    fi
+    rm -f "$TMP_DMG"
+}
+trap cleanup ERR
+
+# 6. Stage the contents
+echo "→ Staging contents…"
+cp -R "$APP" "$MOUNT/"
+ln -s /Applications "$MOUNT/Applications"
+
+mkdir -p "$MOUNT/.background"
+cp "$BG_SRC" "$MOUNT/.background/background.png"
+
+# 7. Tell Finder how to lay it out
+echo "→ Configuring Finder view…"
+osascript <<APPLESCRIPT
+tell application "Finder"
+    tell disk "$VOLNAME"
+        open
+        delay 1
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {$WIN_X, $WIN_Y, $((WIN_X + WIN_W)), $((WIN_Y + WIN_H))}
+        set viewOptions to the icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to $ICON_SIZE
+        set text size of viewOptions to 12
+        set label position of viewOptions to bottom
+        set background picture of viewOptions to file ".background:background.png"
+        set position of item "$APP_NAME.app" of container window to {$ICON_LEFT_X, $ICON_Y}
+        set position of item "Applications" of container window to {$ICON_RIGHT_X, $ICON_Y}
+        update without registering applications
+        delay 1
+        close
+    end tell
+end tell
+APPLESCRIPT
+
+# 8. Settle the filesystem so .DS_Store is fully flushed before detaching.
+sync
+sleep 2
+
+# 9. Detach
+echo "→ Detaching…"
+hdiutil detach "$DEVICE" -quiet
+
+# 10. Convert to compressed read-only
+echo "→ Compressing…"
+hdiutil convert "$TMP_DMG" \
+    -format UDZO \
+    -imagekey zlib-level=9 \
+    -ov \
+    -o "$DMG" >/dev/null
+
+rm -f "$TMP_DMG"
+trap - ERR
+
 SIZE_HUMAN="$(du -h "$DMG" | cut -f1)"
-echo ""
-echo "✅ Built $DMG ($SIZE_HUMAN)"
-echo ""
-echo "To install:"
-echo "   open \"$DMG\""
-echo "   then drag LiveWall.app onto the Applications shortcut."
-echo ""
+cat <<EOF
+
+✅ Built $DMG ($SIZE_HUMAN)
+
+To preview the installer layout locally:
+   open "$DMG"
+
+EOF
