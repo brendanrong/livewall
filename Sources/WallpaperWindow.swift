@@ -74,7 +74,47 @@ final class WallpaperWindow: NSWindow {
             host.addSubview(wv)
             webView = wv
         }
-        webView?.load(URLRequest(url: url))
+
+        // YouTube refuses to play /embed/ URLs loaded as a top-level page
+        // (Error 153: "Video player configuration error" — its origin check
+        // fails). Wrapping the embed in an <iframe> on a tiny HTML host page
+        // with a stable baseURL gives YouTube a legitimate embedding origin
+        // and the player works.
+        if isYouTubeEmbed(url) {
+            let html = youTubeWrapperHTML(embedURL: url)
+            webView?.loadHTMLString(html, baseURL: URL(string: "https://livewall.local/"))
+        } else {
+            webView?.load(URLRequest(url: url))
+        }
+    }
+
+    private func isYouTubeEmbed(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return (host == "www.youtube.com" || host == "youtube.com")
+            && url.path.hasPrefix("/embed/")
+    }
+
+    private func youTubeWrapperHTML(embedURL: URL) -> String {
+        let safeURL = embedURL.absoluteString
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <style>
+            html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+            iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+        </style>
+        </head>
+        <body>
+        <iframe src="\(safeURL)"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowfullscreen></iframe>
+        </body>
+        </html>
+        """
     }
 
     func setMuted(_ muted: Bool) {

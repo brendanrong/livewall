@@ -171,22 +171,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         controller.handleScreenChange()
     }
 
-    /// Build a minimal main menu so keyboard shortcuts route correctly
-    /// through the responder chain. Required for cmd+V to paste into our
-    /// NSAlert text fields. The menu itself never appears (LSUIElement).
+    /// Build the main menu. Required for keyboard shortcuts (cmd+V, cmd+Q)
+    /// to route correctly via the responder chain. Visible when the app is
+    /// frontmost (Settings open or dock icon clicked).
     private func installMainMenu() {
         let main = NSMenu()
 
-        // App menu
+        // ── App menu (LiveWall) ────────────────────────────
         let appMenuItem = NSMenuItem()
         main.addItem(appMenuItem)
         let appMenu = NSMenu()
         appMenuItem.submenu = appMenu
+
+        appMenu.addItem(withTitle: "About LiveWall",
+                        action: #selector(showAboutPane),
+                        keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Settings…",
+                        action: #selector(showSettings),
+                        keyEquivalent: ",")
+        appMenu.addItem(withTitle: "Check for Updates…",
+                        action: #selector(checkForUpdatesMenuItem),
+                        keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Hide LiveWall",
+                        action: #selector(NSApplication.hide(_:)),
+                        keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others",
+                                          action: #selector(NSApplication.hideOtherApplications(_:)),
+                                          keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All",
+                        action: #selector(NSApplication.unhideAllApplications(_:)),
+                        keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "Quit LiveWall",
                         action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q")
 
-        // Edit menu — the one we actually need.
+        // ── Edit menu (paste / copy / cut / select-all) ───
         let editMenuItem = NSMenuItem()
         main.addItem(editMenuItem)
         let editMenu = NSMenu(title: "Edit")
@@ -214,6 +237,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                          keyEquivalent: "a")
 
         NSApp.mainMenu = main
+    }
+
+    @objc private func showSettings() {
+        prefsWindow?.show()
+    }
+
+    @objc private func showAboutPane() {
+        prefsWindow?.showAbout()
+    }
+
+    @objc private func checkForUpdatesMenuItem() {
+        checkForUpdates()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
