@@ -1,13 +1,15 @@
 import Cocoa
 
 enum PrefsSection: Int, CaseIterable {
-    case general, display, playback, about
+    case general, display, playback, library, generate, about
 
     var title: String {
         switch self {
         case .general:  return "General"
         case .display:  return "Display"
         case .playback: return "Playback"
+        case .library:  return "Library"
+        case .generate: return "Generate"
         case .about:    return "About"
         }
     }
@@ -17,6 +19,8 @@ enum PrefsSection: Int, CaseIterable {
         case .general:  return "general"
         case .display:  return "display"
         case .playback: return "playback"
+        case .library:  return "library"
+        case .generate: return "generate"
         case .about:    return "about"
         }
     }
@@ -26,6 +30,8 @@ enum PrefsSection: Int, CaseIterable {
         case .general:  return "gearshape"
         case .display:  return "display"
         case .playback: return "play.rectangle"
+        case .library:  return "square.grid.2x2"
+        case .generate: return "sparkles"
         case .about:    return "info.circle"
         }
     }

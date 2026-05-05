@@ -49,6 +49,10 @@ final class Preferences {
         static let perScreenSources = "perScreenSources"
         static let hasCompletedFirstLaunch = "hasCompletedFirstLaunch"
         static let showDockIcon = "showDockIcon"
+        // Generate pane: remembered model / resolution / duration
+        static let generateModel = "generateModel"
+        static let generateResolution = "generateResolution"
+        static let generateDuration = "generateDuration"
 
         static let allKeys: [String] = [
             contentMode, contentPath, rotationInterval, muted, opacity, allSpaces,
@@ -57,6 +61,7 @@ final class Preferences {
             recentSources, wallpaperEnabled,
             pauseOnBattery, pauseOnFullscreen, shuffle, lastSettingsSection,
             crossFade, perScreenSources, hasCompletedFirstLaunch, showDockIcon,
+            generateModel, generateResolution, generateDuration,
         ]
     }
 
@@ -269,6 +274,29 @@ final class Preferences {
         if let source = source { map[displayID] = source }
         else { map.removeValue(forKey: displayID) }
         perScreenSources = map
+    }
+
+    // MARK: - Generate pane state
+
+    /// Last-selected video model in the Generate pane. Default: Veo 3.1 Fast.
+    var generateModel: String {
+        get { defaults.string(forKey: Key.generateModel) ?? "veo-3.1-fast" }
+        set { defaults.set(newValue, forKey: Key.generateModel) }
+    }
+
+    /// Last-selected resolution mode (RESOLUTION_1080 etc). Default: 1080p.
+    var generateResolution: String {
+        get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_1080" }
+        set { defaults.set(newValue, forKey: Key.generateResolution) }
+    }
+
+    /// Last-selected duration in seconds. Default: 8s (matches Veo default).
+    var generateDuration: Int {
+        get {
+            if defaults.object(forKey: Key.generateDuration) == nil { return 8 }
+            return defaults.integer(forKey: Key.generateDuration)
+        }
+        set { defaults.set(newValue, forKey: Key.generateDuration) }
     }
 
     /// Wipe every key this app stores. Intentionally does NOT touch

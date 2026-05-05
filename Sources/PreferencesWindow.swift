@@ -5,6 +5,13 @@ import ServiceManagement
 private let SUPPORT_URL       = "https://ko-fi.com/livewall"
 private let FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScOTXryCm9j5NXLCxL9HCOX9kE697IDE2bSSLkmjmLCMSKkdA/viewform"
 
+/// NSView with a top-left coordinate origin. Wrap a stack view in this
+/// before handing it to NSScrollView.documentView so children pin to the
+/// top of the visible area instead of the bottom.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private weak var controller: WallpaperController?
 
@@ -41,6 +48,22 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var hotkeyRecorder: HotkeyRecorderButton!
     private var pauseBatteryToggle: NSSwitch!
     private var pauseFullscreenToggle: NSSwitch!
+
+    // MARK: Library
+    private var libraryStack: NSStackView!
+    private var libraryStatusLabel: NSTextField!
+    private var libraryRefreshButton: NSButton!
+    private var libraryItemActionButtons: [String: NSButton] = [:]
+    private var libraryItemStatusLabels: [String: NSTextField] = [:]
+
+    // MARK: Generate
+    private var generatePromptField: NSTextField!
+    private var generateButton: NSButton!
+    private var generateCancelButton: NSButton!
+    private var generateStatusLabel: NSTextField!
+    private var generateModelPopup: NSPopUpButton!
+    private var generateResolutionPopup: NSPopUpButton!
+    private var generateDurationPopup: NSPopUpButton!
 
     // MARK: Sidebar state
     private var sidebarItems: [SidebarItemButton] = []
@@ -93,6 +116,15 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Open the Settings window and jump straight to the About pane.
+    /// Used by the app menu's "About LiveWall" item so the standard
+    /// macOS About flow lands on our designed pane instead of Apple's
+    /// generic about panel.
+    func showAbout() {
+        show()
+        showSection(.about)
     }
 
     // MARK: - UI assembly
@@ -150,6 +182,16 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             title: "Playback",
             subtitle: "Audio, rotation, and global shortcut",
             content: buildPlaybackPane()
+        )
+        sectionViews[.library] = buildPaneShell(
+            title: "Library",
+            subtitle: "Wallpapers in your ~/Movies/LiveWall/Library/ folder",
+            content: buildLibraryPane()
+        )
+        sectionViews[.generate] = buildPaneShell(
+            title: "Generate",
+            subtitle: "Create a new wallpaper from a text prompt",
+            content: buildGeneratePane()
         )
         sectionViews[.about] = buildAboutPane()
 
@@ -605,6 +647,473 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         pane.setHuggingPriority(.defaultLow, for: .horizontal)
         fillWidth(pane)
         return pane
+    }
+
+    // MARK: Library
+
+    private func buildLibraryPane() -> NSView {
+        // Item count, used inline within the row of action buttons.
+        libraryStatusLabel = NSTextField(labelWithString: "Scanning…")
+        libraryStatusLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        libraryStatusLabel.textColor = .secondaryLabelColor
+        libraryStatusLabel.lineBreakMode = .byTruncatingTail
+        libraryStatusLabel.maximumNumberOfLines = 1
+        libraryStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        libraryRefreshButton = NSButton(title: "Refresh",
+                                        target: self,
+                                        action: #selector(libraryRefreshClicked))
+        libraryRefreshButton.bezelStyle = .rounded
+        libraryRefreshButton.controlSize = .small
+
+        let revealButton = NSButton(title: "Show Folder",
+                                     target: self,
+                                     action: #selector(libraryRevealFolderClicked))
+        revealButton.bezelStyle = .rounded
+        revealButton.controlSize = .small
+
+        let topRowSpacer = NSView()
+        topRowSpacer.translatesAutoresizingMaskIntoConstraints = false
+        topRowSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let topRow = NSStackView(views: [libraryStatusLabel, topRowSpacer,
+                                          revealButton, libraryRefreshButton])
+        topRow.orientation = .horizontal
+        topRow.alignment = .centerY
+        topRow.spacing = 8
+        topRow.distribution = .fill
+
+        libraryStack = NSStackView()
+        libraryStack.orientation = .vertical
+        libraryStack.alignment = .leading
+        libraryStack.spacing = 10
+        libraryStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let docView = FlippedView()
+        docView.translatesAutoresizingMaskIntoConstraints = false
+        docView.addSubview(libraryStack)
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = docView
+
+        NSLayoutConstraint.activate([
+            docView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            docView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            docView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            // Width matches the clipView so cards stretch full width but
+            // don't introduce a horizontal scroll.
+            docView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            libraryStack.leadingAnchor.constraint(equalTo: docView.leadingAnchor),
+            libraryStack.trailingAnchor.constraint(equalTo: docView.trailingAnchor),
+            libraryStack.topAnchor.constraint(equalTo: docView.topAnchor),
+            // Drive docView's height from the stack so the scroll view
+            // knows when to start scrolling.
+            libraryStack.bottomAnchor.constraint(equalTo: docView.bottomAnchor),
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 360),
+        ])
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(libraryManifestDidLoad),
+            name: LibraryService.manifestLoadedNotification, object: nil)
+
+        refreshLibrary()
+
+        let pane = NSStackView(views: [topRow, scrollView])
+        pane.orientation = .vertical
+        pane.alignment = .leading
+        pane.spacing = 14
+        pane.distribution = .fill
+        pane.setHuggingPriority(.defaultLow, for: .horizontal)
+        fillWidth(pane)
+        return pane
+    }
+
+    /// One library row: title + category + Use button.
+    private func buildLibraryRow(_ item: LibraryItem) -> NSView {
+        let title = NSTextField(labelWithString: item.title)
+        title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        title.maximumNumberOfLines = 1
+        title.lineBreakMode = .byTruncatingMiddle
+
+        let category = NSTextField(labelWithString: item.category ?? "Wallpaper")
+        category.font = NSFont.systemFont(ofSize: 11)
+        category.textColor = .secondaryLabelColor
+
+        let textColumn = NSStackView(views: [title, category])
+        textColumn.orientation = .vertical
+        textColumn.alignment = .leading
+        textColumn.spacing = 2
+        textColumn.translatesAutoresizingMaskIntoConstraints = false
+        textColumn.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let revealRow = NSButton(title: "Reveal",
+                                 target: self,
+                                 action: #selector(libraryRevealItemClicked(_:)))
+        revealRow.bezelStyle = .rounded
+        revealRow.controlSize = .small
+        revealRow.identifier = NSUserInterfaceItemIdentifier(rawValue: item.id)
+
+        let useButton = NSButton(title: "Use",
+                                 target: self,
+                                 action: #selector(libraryUseClicked(_:)))
+        useButton.bezelStyle = .rounded
+        useButton.controlSize = .small
+        useButton.identifier = NSUserInterfaceItemIdentifier(rawValue: item.id)
+
+        let row = NSStackView(views: [textColumn, revealRow, useButton])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 10
+        card.layer?.backgroundColor = NSColor.unemphasizedSelectedContentBackgroundColor.cgColor
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(row)
+
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: card.topAnchor),
+            row.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            row.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+        ])
+        return card
+    }
+
+    private func refreshLibrary() {
+        libraryStatusLabel?.stringValue = "Scanning your library…"
+        libraryRefreshButton?.isEnabled = false
+        LibraryService.shared.loadManifest { [weak self] result in
+            guard let self = self else { return }
+            self.libraryRefreshButton?.isEnabled = true
+            switch result {
+            case .success(let items):
+                self.populateLibraryRows(items)
+                self.updateLibraryStatus(items)
+            case .failure(let error):
+                self.libraryStatusLabel?.stringValue =
+                    "Couldn't scan: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func populateLibraryRows(_ items: [LibraryItem]) {
+        libraryStack?.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        if items.isEmpty {
+            let empty = NSTextField(wrappingLabelWithString:
+                "Nothing here yet. Generate a wallpaper from the Generate tab, " +
+                "or drop your own .mp4 / .mov files into ~/Movies/LiveWall/Library/.")
+            empty.font = NSFont.systemFont(ofSize: 12)
+            empty.textColor = .tertiaryLabelColor
+            empty.alignment = .center
+            empty.preferredMaxLayoutWidth = 380
+            libraryStack.addArrangedSubview(empty)
+            empty.widthAnchor.constraint(equalTo: libraryStack.widthAnchor).isActive = true
+            return
+        }
+
+        for item in items {
+            let row = buildLibraryRow(item)
+            libraryStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: libraryStack.widthAnchor).isActive = true
+        }
+    }
+
+    private func updateLibraryStatus(_ items: [LibraryItem]) {
+        if items.isEmpty {
+            libraryStatusLabel?.stringValue = "Nothing in your library yet."
+        } else {
+            libraryStatusLabel?.stringValue =
+                "\(items.count) wallpaper\(items.count == 1 ? "" : "s") on disk"
+        }
+    }
+
+    // MARK: Library actions
+
+    @objc private func libraryRefreshClicked() {
+        refreshLibrary()
+    }
+
+    @objc private func libraryRevealFolderClicked() {
+        let folder = LibraryService.shared.rootFolder
+        try? FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([folder])
+    }
+
+    @objc private func libraryUseClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let item = LibraryService.shared.items.first(where: { $0.id == id }) else { return }
+        controller?.setVideoFile(item.videoURL)
+        loadValues()
+    }
+
+    @objc private func libraryRevealItemClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let item = LibraryService.shared.items.first(where: { $0.id == id }) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([item.videoURL])
+    }
+
+    @objc private func libraryManifestDidLoad() {
+        let items = LibraryService.shared.items
+        populateLibraryRows(items)
+        updateLibraryStatus(items)
+    }
+
+    // MARK: Generate
+
+    private func buildGeneratePane() -> NSView {
+        // Prompt input — taller so people feel comfortable typing a sentence.
+        generatePromptField = NSTextField()
+        generatePromptField.placeholderString = "A cinematic shot of red smoke drifting on a black background"
+        generatePromptField.font = NSFont.systemFont(ofSize: 14)
+        generatePromptField.translatesAutoresizingMaskIntoConstraints = false
+        generatePromptField.heightAnchor.constraint(equalToConstant: 84).isActive = true
+        generatePromptField.cell?.wraps = true
+        generatePromptField.cell?.isScrollable = false
+        generatePromptField.cell?.usesSingleLineMode = false
+
+        // Model / Resolution / Duration dropdowns.
+        generateModelPopup = NSPopUpButton()
+        generateModelPopup.translatesAutoresizingMaskIntoConstraints = false
+        for model in LeonardoModel.allCases {
+            generateModelPopup.addItem(withTitle: model.displayName)
+            generateModelPopup.lastItem?.representedObject = model.rawValue
+        }
+        generateModelPopup.target = self
+        generateModelPopup.action = #selector(generateModelChanged)
+
+        generateResolutionPopup = NSPopUpButton()
+        generateResolutionPopup.translatesAutoresizingMaskIntoConstraints = false
+        generateResolutionPopup.target = self
+        generateResolutionPopup.action = #selector(generateResolutionChanged)
+
+        generateDurationPopup = NSPopUpButton()
+        generateDurationPopup.translatesAutoresizingMaskIntoConstraints = false
+        generateDurationPopup.target = self
+        generateDurationPopup.action = #selector(generateDurationChanged)
+
+        // Generate + Cancel buttons.
+        generateButton = NSButton(title: "Generate",
+                                  target: self,
+                                  action: #selector(generateClicked))
+        generateButton.bezelStyle = .rounded
+        generateButton.keyEquivalent = "\r" // Return key triggers it
+        generateButton.controlSize = .large
+
+        generateCancelButton = NSButton(title: "Cancel",
+                                        target: self,
+                                        action: #selector(generateCancelClicked))
+        generateCancelButton.bezelStyle = .rounded
+        generateCancelButton.controlSize = .large
+        generateCancelButton.isHidden = true
+
+        // One horizontal row that holds everything: each option dropdown
+        // is a small caption-over-control group, then a flexible spacer
+        // pushes the action buttons to the right edge.
+        let buttonStack = NSStackView(views: [generateCancelButton, generateButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 8
+        buttonStack.alignment = .centerY
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let optionsRow = NSStackView(views: [
+            optionGroup("MODEL",      popup: generateModelPopup),
+            optionGroup("RESOLUTION", popup: generateResolutionPopup),
+            optionGroup("DURATION",   popup: generateDurationPopup),
+            spacer,
+            buttonStack,
+        ])
+        optionsRow.orientation = .horizontal
+        optionsRow.alignment = .bottom
+        optionsRow.spacing = 16
+        optionsRow.translatesAutoresizingMaskIntoConstraints = false
+
+        // Status text — shows current pipeline phase or last error.
+        generateStatusLabel = NSTextField(labelWithString:
+            "Type a prompt and hit Generate. Each clip takes 2-5 minutes and shows up in your Library.")
+        generateStatusLabel.font = NSFont.systemFont(ofSize: 12)
+        generateStatusLabel.textColor = .secondaryLabelColor
+        generateStatusLabel.lineBreakMode = .byWordWrapping
+        generateStatusLabel.maximumNumberOfLines = 0
+
+        // Restore previously-saved selections.
+        loadGenerateSelections()
+
+        // Subscribe to phase changes so the status label updates live.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(generatePhaseChanged),
+            name: LeonardoService.phaseChangedNotification, object: nil)
+
+        let pane = NSStackView(views: [
+            generatePromptField, optionsRow, generateStatusLabel,
+        ])
+        pane.orientation = .vertical
+        pane.alignment = .leading
+        pane.spacing = 18
+        pane.distribution = .fill
+        pane.setHuggingPriority(.defaultLow, for: .horizontal)
+        fillWidth(pane)
+        return pane
+    }
+
+    /// One labelled-control group for the options row: small uppercase
+    /// caption above the popup, both left-aligned.
+    private func optionGroup(_ caption: String, popup: NSPopUpButton) -> NSView {
+        let cap = NSTextField(labelWithString: caption)
+        cap.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        cap.textColor = .tertiaryLabelColor
+        let stack = NSStackView(views: [cap, popup])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }
+
+    /// Pull the currently-selected model out of the popup.
+    private var currentSelectedModel: LeonardoModel {
+        let raw = (generateModelPopup?.selectedItem?.representedObject as? String)
+            ?? Preferences.shared.generateModel
+        return LeonardoModel(rawValue: raw) ?? .veo31Fast
+    }
+
+    /// Apply saved selections to the three popups, also rebuilding
+    /// resolution + duration lists so they match the model.
+    private func loadGenerateSelections() {
+        let savedModel = LeonardoModel(rawValue: Preferences.shared.generateModel) ?? .veo31Fast
+        if let idx = LeonardoModel.allCases.firstIndex(of: savedModel) {
+            generateModelPopup.selectItem(at: idx)
+        }
+        rebuildResolutionPopup(for: savedModel)
+        rebuildDurationPopup(for: savedModel)
+    }
+
+    /// Repopulate the resolution dropdown for the given model and select
+    /// the saved resolution if it's still valid, otherwise the model default.
+    private func rebuildResolutionPopup(for model: LeonardoModel) {
+        generateResolutionPopup.removeAllItems()
+        for res in model.resolutions {
+            generateResolutionPopup.addItem(withTitle: res.displayName)
+            generateResolutionPopup.lastItem?.representedObject = res.rawValue
+        }
+        let savedRaw = Preferences.shared.generateResolution
+        let target = model.resolutions.first { $0.rawValue == savedRaw } ?? model.defaultResolution
+        if let idx = model.resolutions.firstIndex(of: target) {
+            generateResolutionPopup.selectItem(at: idx)
+        }
+    }
+
+    /// Repopulate the duration dropdown for the given model and select
+    /// the saved duration if it's still valid, otherwise the model default.
+    private func rebuildDurationPopup(for model: LeonardoModel) {
+        generateDurationPopup.removeAllItems()
+        for d in model.durations {
+            generateDurationPopup.addItem(withTitle: "\(d)s")
+            generateDurationPopup.lastItem?.representedObject = d
+        }
+        let saved = Preferences.shared.generateDuration
+        let target = model.durations.contains(saved) ? saved : model.defaultDuration
+        if let idx = model.durations.firstIndex(of: target) {
+            generateDurationPopup.selectItem(at: idx)
+        }
+    }
+
+    @objc private func generateModelChanged() {
+        let model = currentSelectedModel
+        Preferences.shared.generateModel = model.rawValue
+        rebuildResolutionPopup(for: model)
+        rebuildDurationPopup(for: model)
+        // Persist the (possibly defaulted) resolution + duration that
+        // rebuild* just selected so they survive a relaunch.
+        if let res = generateResolutionPopup.selectedItem?.representedObject as? String {
+            Preferences.shared.generateResolution = res
+        }
+        if let dur = generateDurationPopup.selectedItem?.representedObject as? Int {
+            Preferences.shared.generateDuration = dur
+        }
+    }
+
+    @objc private func generateResolutionChanged() {
+        if let res = generateResolutionPopup.selectedItem?.representedObject as? String {
+            Preferences.shared.generateResolution = res
+        }
+    }
+
+    @objc private func generateDurationChanged() {
+        if let dur = generateDurationPopup.selectedItem?.representedObject as? Int {
+            Preferences.shared.generateDuration = dur
+        }
+    }
+
+    // MARK: Generate actions
+
+    @objc private func generateClicked() {
+        let prompt = generatePromptField.stringValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else {
+            generateStatusLabel.stringValue = "Type something into the prompt first."
+            return
+        }
+        let model = currentSelectedModel
+        let resRaw = (generateResolutionPopup.selectedItem?.representedObject as? String)
+            ?? model.defaultResolution.rawValue
+        let resolution = LeonardoResolution(rawValue: resRaw) ?? model.defaultResolution
+        let duration = (generateDurationPopup.selectedItem?.representedObject as? Int)
+            ?? model.defaultDuration
+
+        generateButton.isEnabled = false
+        generateCancelButton.isHidden = false
+        generateStatusLabel.stringValue = "Starting…"
+        LeonardoService.shared.generate(prompt: prompt,
+                                         model: model,
+                                         resolution: resolution,
+                                         duration: duration) { [weak self] result in
+            guard let self = self else { return }
+            self.generateButton.isEnabled = true
+            self.generateCancelButton.isHidden = true
+            switch result {
+            case .success(let url):
+                self.generateStatusLabel.stringValue = "Saved to your Library and set as wallpaper."
+                self.controller?.setVideoFile(url)
+                self.loadValues()
+                LibraryService.shared.loadManifest { _ in
+                    self.refreshLibrary()
+                }
+            case .failure(let error):
+                self.generateStatusLabel.stringValue = "Failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    @objc private func generateCancelClicked() {
+        LeonardoService.shared.cancel()
+    }
+
+    @objc private func generatePhaseChanged() {
+        let phase = LeonardoService.shared.phase
+        switch phase {
+        case .idle, .complete:
+            break
+        case .failed(let msg):
+            generateStatusLabel?.stringValue = "Failed: \(msg)"
+        default:
+            generateStatusLabel?.stringValue = phase.label
+        }
     }
 
     // MARK: About

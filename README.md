@@ -85,7 +85,13 @@ LiveWall/
 
 ## Privacy
 
-No tracking. No telemetry. No analytics. No external network calls except the WebKit web wallpaper feature (which only loads URLs you give it). Your file picks and preferences live in `~/Library/Preferences/com.brendan.livewall.plist`.
+No tracking. No telemetry. No analytics. The only network calls LiveWall makes are:
+
+- The WebKit web wallpaper feature, which only loads URLs you give it.
+- The Generate tab, which calls Leonardo.AI's REST API to produce video clips from your prompts. Only the prompt and your generation parameters are sent — no system info, no identifiers.
+- Check for Updates in the About pane, which hits `api.github.com` to ask whether a newer LiveWall release exists.
+
+Your file picks and preferences live in `~/Library/Preferences/com.brendan.livewall.plist`. Generated and locally-dropped wallpapers live in `~/Movies/LiveWall/Library/`.
 
 ## Caveats
 

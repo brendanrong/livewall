@@ -1,6 +1,11 @@
 # Build outputs (regenerable via build.sh / make_dmg.sh / notarize.sh)
 LiveWall.app/
 LiveWall.dmg
+LiveWall-*.dmg
+
+# Secrets — never commit these
+Sources/Generated/
+.livewall-secrets
 
 # macOS clutter
 .DS_Store
