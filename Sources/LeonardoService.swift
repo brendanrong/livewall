@@ -8,13 +8,15 @@ import Foundation
 enum LeonardoModel: String, CaseIterable {
     case kling30        = "kling-3.0"
     case seedance20Fast = "seedance-2.0-fast"
-    case veo31Fast      = "veo-3.1-fast"
+    case ltxv23Pro      = "ltxv-2.3-pro"
+    // Veo 3.1 Fast intentionally omitted — Leonardo's REST endpoint for
+    // it doesn't share the same shape as the others. Tracked for later.
 
     var displayName: String {
         switch self {
         case .kling30:        return "Kling 3.0"
         case .seedance20Fast: return "Seedance 2.0 Fast"
-        case .veo31Fast:      return "Veo 3.1 Fast"
+        case .ltxv23Pro:      return "LTX 2.3 Pro"
         }
     }
 
@@ -23,7 +25,7 @@ enum LeonardoModel: String, CaseIterable {
         switch self {
         case .kling30:        return [3, 5, 7, 10, 15]
         case .seedance20Fast: return [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-        case .veo31Fast:      return [4, 6, 8]
+        case .ltxv23Pro:      return [6, 8, 10]
         }
     }
 
@@ -31,46 +33,129 @@ enum LeonardoModel: String, CaseIterable {
         switch self {
         case .kling30:        return 5
         case .seedance20Fast: return 8
-        case .veo31Fast:      return 8
+        case .ltxv23Pro:      return 8
         }
     }
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
+    /// LTX 2.3 Pro accepts 4K via a quirky request shape: `mode:
+    /// RESOLUTION_2160` with width/height set to 1080p dimensions and
+    /// the whole thing wrapped in `{"request": {...}}`. Leonardo
+    /// upscales internally. See `startGeneration` for the special-case.
     var resolutions: [LeonardoResolution] {
         switch self {
-        case .kling30:        return [.fullHD, .uhd4K]
+        case .kling30:        return [.fullHD]
         case .seedance20Fast: return [.fullHD]
-        case .veo31Fast:      return [.fullHD, .uhd4K]
+        case .ltxv23Pro:      return [.fullHD, .qhd1440, .uhd4K]
         }
     }
 
-    var defaultResolution: LeonardoResolution { .fullHD }
+    var defaultResolution: LeonardoResolution {
+        switch self {
+        case .ltxv23Pro: return .uhd4K     // The reason this model is here.
+        default:         return .fullHD
+        }
+    }
+
+    /// Whether this model supports an optional start-frame image.
+    var supportsStartFrame: Bool {
+        // All three currently allow guidances.start_frame per docs.
+        return true
+    }
+
+    /// Whether this model supports an optional end frame (transition video).
+    /// End frame requires start frame to also be set.
+    var supportsEndFrame: Bool {
+        // Kling, Seedance, and LTX all document end_frame.
+        return true
+    }
+
+    /// Rough wall-clock time we expect a generation to take, in seconds.
+    /// Used by the progress bar to give the user a sense of pacing.
+    func expectedSeconds(forClipDuration duration: Int) -> TimeInterval {
+        let base: TimeInterval
+        switch self {
+        case .kling30:        base = 180  // 3 min for 5s
+        case .seedance20Fast: base = 90   // 1.5 min for 8s
+        case .ltxv23Pro:      base = 240  // 4 min for 8s, 4K is heavier
+        }
+        let scale = 1.0 + Double(max(duration, 1) - 5) * 0.04
+        return base * scale
+    }
+
+    /// Rough cost estimate in USD for the given parameters. Numbers come
+    /// from observed `cost.amount` values in real generation responses,
+    /// extrapolated. Always shown to the user with a "~" prefix because
+    /// these are estimates, not contracts.
+    func estimatedCostUSD(resolution: LeonardoResolution,
+                          duration: Int,
+                          hasStartFrame: Bool,
+                          hasEndFrame: Bool) -> Double {
+        // Per-second base rate at 1080p, in USD.
+        let baseRatePerSecond: Double
+        switch self {
+        case .kling30:        baseRatePerSecond = 0.17  // ~$0.84 for 5s
+        case .seedance20Fast: baseRatePerSecond = 0.36  // ~$1.81 for 5s
+        case .ltxv23Pro:      baseRatePerSecond = 0.45  // estimated, no observed data
+        }
+        // Resolution multiplier — pixel count scales roughly with cost.
+        let resMultiplier: Double
+        switch resolution {
+        case .fullHD:  resMultiplier = 1.0
+        case .qhd1440: resMultiplier = 1.6   // ~1.78x pixels
+        case .uhd4K:   resMultiplier = 3.5   // ~4x pixels but Leonardo discounts a bit
+        }
+        // Image-to-video typically a small premium on top.
+        let frameMultiplier = (hasStartFrame || hasEndFrame) ? 1.10 : 1.0
+        return baseRatePerSecond * Double(duration) * resMultiplier * frameMultiplier
+    }
 }
 
 /// 16:9 video output sizes we expose.
 enum LeonardoResolution: String, CaseIterable {
-    case fullHD = "RESOLUTION_1080" // 1920x1080
-    case uhd4K  = "RESOLUTION_2160" // 3840x2160
+    case fullHD  = "RESOLUTION_1080" // 1920x1080
+    case qhd1440 = "RESOLUTION_1440" // 2560x1440
+    case uhd4K   = "RESOLUTION_2160" // 3840x2160
 
     var displayName: String {
         switch self {
-        case .fullHD: return "1080p"
-        case .uhd4K:  return "4K"
+        case .fullHD:  return "1080p"
+        case .qhd1440: return "1440p"
+        case .uhd4K:   return "4K"
         }
     }
 
     var width: Int {
         switch self {
-        case .fullHD: return 1920
-        case .uhd4K:  return 3840
+        case .fullHD:  return 1920
+        case .qhd1440: return 2560
+        case .uhd4K:   return 3840
         }
     }
 
     var height: Int {
         switch self {
-        case .fullHD: return 1080
-        case .uhd4K:  return 2160
+        case .fullHD:  return 1080
+        case .qhd1440: return 1440
+        case .uhd4K:   return 2160
         }
+    }
+}
+
+/// Reference to an image already uploaded to Leonardo via the presigned-URL
+/// init-image flow. Pass instances of these into `LeonardoService.generate`
+/// as the `startFrame` and/or `endFrame` parameters.
+struct LeonardoImageRef: Equatable {
+    /// The init-image ID returned by Leonardo. Used as `image.id` in
+    /// guidances.start_frame / end_frame.
+    let id: String
+    /// Always "UPLOADED" for user-supplied init images. The other valid
+    /// value is "GENERATED" (when chaining off a previously generated
+    /// image), which we don't currently produce.
+    let type: String
+
+    static func uploaded(id: String) -> LeonardoImageRef {
+        LeonardoImageRef(id: id, type: "UPLOADED")
     }
 }
 
@@ -137,10 +222,16 @@ final class LeonardoService {
     /// Run the full text → video → download pipeline for the given model.
     /// `completion` fires once on the main queue with the local file URL
     /// of the finished clip, or an error.
+    ///
+    /// Optional `startFrame` / `endFrame` make this an image-to-video
+    /// generation. End frame requires start frame; if you violate that
+    /// constraint Leonardo will reject the request.
     func generate(prompt: String,
                   model: LeonardoModel,
                   resolution: LeonardoResolution,
                   duration: Int,
+                  startFrame: LeonardoImageRef? = nil,
+                  endFrame: LeonardoImageRef? = nil,
                   completion: @escaping (Result<URL, Error>) -> Void) {
         cancelled = false
         phase = .starting
@@ -148,7 +239,8 @@ final class LeonardoService {
             at: outputFolder, withIntermediateDirectories: true)
 
         startGeneration(prompt: prompt, model: model,
-                        resolution: resolution, duration: duration) { [weak self] result in
+                        resolution: resolution, duration: duration,
+                        startFrame: startFrame, endFrame: endFrame) { [weak self] result in
             guard let self = self else { return }
             if self.cancelled { self.fail("Cancelled", completion); return }
             switch result {
@@ -178,6 +270,8 @@ final class LeonardoService {
                                  model: LeonardoModel,
                                  resolution: LeonardoResolution,
                                  duration: Int,
+                                 startFrame: LeonardoImageRef?,
+                                 endFrame: LeonardoImageRef?,
                                  completion: @escaping (Result<String, Error>) -> Void) {
         var req = URLRequest(url: v2BaseURL.appendingPathComponent("generations"))
         req.httpMethod = "POST"
@@ -186,25 +280,83 @@ final class LeonardoService {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 30
 
-        // Note: not sending `mode`. Each model has different rules for what
-        // mode strings are valid (Seedance only documents 480/720, Kling
-        // documents 720/1080, Veo uses `resolution` not `mode`). Sending
-        // explicit width/height is the one signal that's consistent.
-        let parameters: [String: Any] = [
-            "prompt": prompt,
-            "duration": duration,
-            "width": resolution.width,
-            "height": resolution.height,
-        ]
-        let body: [String: Any] = [
-            "model": model.rawValue,
-            "public": false,
-            "parameters": parameters,
-        ]
+        // Image guidances are shaped the same across all models.
+        var guidances: [String: Any] = [:]
+        if let sf = startFrame {
+            guidances["start_frame"] = [["image": ["id": sf.id, "type": sf.type]]]
+        }
+        if let ef = endFrame {
+            guidances["end_frame"] = [["image": ["id": ef.id, "type": ef.type]]]
+        }
+
+        // Build the request body, with per-model shaping. LTX 2.3 Pro at
+        // 4K needs a quirky envelope discovered by trial: `{"request":
+        // {...}}` wrapper, mode = RESOLUTION_2160, but width/height set
+        // to 1080p dimensions. Leonardo upscales internally. Other LTX
+        // resolutions and the other models use the plain top-level
+        // envelope that's been working.
+        let body: [String: Any]
+        switch model {
+        case .ltxv23Pro where resolution == .uhd4K:
+            // 4K: wrapped envelope, 1080p dimensions, mode=2160. No
+            // `audio` or `prompt_enhance` keys — including those was
+            // what made earlier wrapper attempts fail.
+            var params: [String: Any] = [
+                "prompt": prompt,
+                "mode": LeonardoResolution.uhd4K.rawValue,
+                "quantity": 1,
+                "duration": duration,
+                "width": LeonardoResolution.fullHD.width,
+                "height": LeonardoResolution.fullHD.height,
+            ]
+            if !guidances.isEmpty { params["guidances"] = guidances }
+            body = [
+                "request": [
+                    "model": model.rawValue,
+                    "public": false,
+                    "parameters": params,
+                ]
+            ]
+        case .ltxv23Pro:
+            // 1080p / 1440p: top-level envelope, real dimensions, full
+            // LTX param set. prompt_enhance must be OFF whenever a
+            // start_frame is set or the API returns VALIDATION_ERROR.
+            var params: [String: Any] = [
+                "prompt": prompt,
+                "duration": duration,
+                "width": resolution.width,
+                "height": resolution.height,
+                "mode": resolution.rawValue,
+                "audio": false,
+                "quantity": 1,
+                "prompt_enhance": (startFrame == nil) ? "AUTO" : "OFF",
+            ]
+            if !guidances.isEmpty { params["guidances"] = guidances }
+            body = [
+                "model": model.rawValue,
+                "public": false,
+                "parameters": params,
+            ]
+        case .kling30, .seedance20Fast:
+            // Plain top-level envelope. width/height pinpoint the preset.
+            var params: [String: Any] = [
+                "prompt": prompt,
+                "duration": duration,
+                "width": resolution.width,
+                "height": resolution.height,
+            ]
+            if !guidances.isEmpty { params["guidances"] = guidances }
+            body = [
+                "model": model.rawValue,
+                "public": false,
+                "parameters": params,
+            ]
+        }
+
         let bodyData = try? JSONSerialization.data(withJSONObject: body)
         req.httpBody = bodyData
         let bodyString = bodyData.flatMap { String(data: $0, encoding: .utf8) } ?? "<nil>"
-        Self.debugLog("POST /v2/generations model=\(model.rawValue) res=\(resolution.rawValue) duration=\(duration)")
+        Self.debugLog("POST /v2/generations model=\(model.rawValue) res=\(resolution.rawValue) duration=\(duration) startFrame=\(startFrame?.id ?? "-") endFrame=\(endFrame?.id ?? "-")")
         Self.debugLog("  body=\(bodyString)")
 
         URLSession.shared.dataTask(with: req) { data, response, error in

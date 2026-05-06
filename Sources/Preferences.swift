@@ -278,15 +278,17 @@ final class Preferences {
 
     // MARK: - Generate pane state
 
-    /// Last-selected video model in the Generate pane. Default: Veo 3.1 Fast.
+    /// Last-selected video model in the Generate pane. Default: LTX 2.3 Pro
+    /// since it's the only one that supports native 4K.
     var generateModel: String {
-        get { defaults.string(forKey: Key.generateModel) ?? "veo-3.1-fast" }
+        get { defaults.string(forKey: Key.generateModel) ?? "ltxv-2.3-pro" }
         set { defaults.set(newValue, forKey: Key.generateModel) }
     }
 
-    /// Last-selected resolution mode (RESOLUTION_1080 etc). Default: 1080p.
+    /// Last-selected resolution mode. Default: 4K — LTX 2.3 Pro accepts
+    /// it via the wrapped-envelope path (see LeonardoService).
     var generateResolution: String {
-        get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_1080" }
+        get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_2160" }
         set { defaults.set(newValue, forKey: Key.generateResolution) }
     }
 

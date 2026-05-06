@@ -57,13 +57,17 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var libraryItemStatusLabels: [String: NSTextField] = [:]
 
     // MARK: Generate
-    private var generatePromptField: NSTextField!
     private var generateButton: NSButton!
     private var generateCancelButton: NSButton!
     private var generateStatusLabel: NSTextField!
     private var generateModelPopup: NSPopUpButton!
     private var generateResolutionPopup: NSPopUpButton!
     private var generateDurationPopup: NSPopUpButton!
+    private var generateProgressBar: NSProgressIndicator!
+    private var generateStartTime: Date?
+    private var generateExpectedDuration: TimeInterval = 90
+    private var generateProgressTimer: Timer?
+    private var generatePromptInput: PromptInputView!
 
     // MARK: Sidebar state
     private var sidebarItems: [SidebarItemButton] = []
@@ -734,44 +738,59 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         return pane
     }
 
-    /// One library row: title + category + Use button.
+    /// One library row: title + colored category badge + Reveal link + primary Use button.
     private func buildLibraryRow(_ item: LibraryItem) -> NSView {
         let title = NSTextField(labelWithString: item.title)
         title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         title.maximumNumberOfLines = 1
         title.lineBreakMode = .byTruncatingMiddle
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let category = NSTextField(labelWithString: item.category ?? "Wallpaper")
-        category.font = NSFont.systemFont(ofSize: 11)
-        category.textColor = .secondaryLabelColor
+        // Pill-style category badge with a category-specific tint.
+        let badge = makeCategoryBadge(item.category ?? "Wallpaper")
 
-        let textColumn = NSStackView(views: [title, category])
-        textColumn.orientation = .vertical
-        textColumn.alignment = .leading
-        textColumn.spacing = 2
-        textColumn.translatesAutoresizingMaskIntoConstraints = false
-        textColumn.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let titleRow = NSStackView(views: [title, badge])
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .centerY
+        titleRow.spacing = 8
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let revealRow = NSButton(title: "Reveal",
-                                 target: self,
-                                 action: #selector(libraryRevealItemClicked(_:)))
-        revealRow.bezelStyle = .rounded
-        revealRow.controlSize = .small
-        revealRow.identifier = NSUserInterfaceItemIdentifier(rawValue: item.id)
+        // Reveal: subtle borderless link, since it's the secondary action.
+        let revealButton = NSButton(title: "Reveal",
+                                    target: self,
+                                    action: #selector(libraryRevealItemClicked(_:)))
+        revealButton.bezelStyle = .accessoryBar
+        revealButton.isBordered = false
+        revealButton.controlSize = .small
+        revealButton.contentTintColor = .secondaryLabelColor
+        revealButton.identifier = NSUserInterfaceItemIdentifier(rawValue: item.id)
 
+        // Use: primary action with accent-colored bezel.
         let useButton = NSButton(title: "Use",
                                  target: self,
                                  action: #selector(libraryUseClicked(_:)))
         useButton.bezelStyle = .rounded
         useButton.controlSize = .small
+        if #available(macOS 14.0, *) {
+            useButton.bezelColor = .controlAccentColor
+        }
         useButton.identifier = NSUserInterfaceItemIdentifier(rawValue: item.id)
 
-        let row = NSStackView(views: [textColumn, revealRow, useButton])
+        // Flexible spacer between the title block and the action buttons
+        // so the buttons always pin to the right edge regardless of how
+        // long or short the title is.
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [titleRow, spacer, revealButton, useButton])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 8
+        row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        row.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 12)
 
         let card = NSView()
         card.wantsLayer = true
@@ -787,6 +806,40 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             row.trailingAnchor.constraint(equalTo: card.trailingAnchor),
         ])
         return card
+    }
+
+    /// Pill-shaped badge with a tint that varies by category name. Used to
+    /// distinguish AI-generated clips from user-imported ones at a glance.
+    private func makeCategoryBadge(_ category: String) -> NSView {
+        let tint: NSColor
+        switch category.lowercased() {
+        case "generated": tint = .systemPurple
+        case "wallpaper": tint = .systemBlue
+        default:          tint = .systemGray
+        }
+
+        let label = NSTextField(labelWithString: category)
+        label.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        label.textColor = tint
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let pill = NSView()
+        pill.wantsLayer = true
+        pill.layer?.cornerRadius = 8
+        pill.layer?.backgroundColor = tint.withAlphaComponent(0.15).cgColor
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 3),
+            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -3),
+            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -8),
+            pill.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        // Don't let the pill stretch — it should hug its content.
+        pill.setContentHuggingPriority(.required, for: .horizontal)
+        return pill
     }
 
     private func refreshLibrary() {
@@ -873,19 +926,35 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     // MARK: Generate
 
     private func buildGeneratePane() -> NSView {
-        // Prompt input — taller so people feel comfortable typing a sentence.
-        generatePromptField = NSTextField()
-        generatePromptField.placeholderString = "A cinematic shot of red smoke drifting on a black background"
-        generatePromptField.font = NSFont.systemFont(ofSize: 14)
-        generatePromptField.translatesAutoresizingMaskIntoConstraints = false
-        generatePromptField.heightAnchor.constraint(equalToConstant: 84).isActive = true
-        generatePromptField.cell?.wraps = true
-        generatePromptField.cell?.isScrollable = false
-        generatePromptField.cell?.usesSingleLineMode = false
+        // Combined prompt + attachments input. Drop an image anywhere on
+        // it to attach as a chip, click the folder icon to browse, hit
+        // Enter to submit. Up to 2 attachments — first is start frame,
+        // second is end frame.
+        generatePromptInput = PromptInputView()
+        generatePromptInput.placeholderString =
+            "A cinematic shot of red smoke drifting on a black background"
+        generatePromptInput.uploadHandler = { url, completion in
+            ImageUploadService.shared.uploadImage(at: url, completion: completion)
+        }
+        generatePromptInput.onAttachmentsChanged = { [weak self] in
+            self?.refreshCostLabel()
+        }
+        generatePromptInput.onSubmit = { [weak self] in
+            self?.generateClicked()
+        }
+        generatePromptInput.onCancel = { [weak self] in
+            self?.generateCancelClicked()
+        }
+        // Use the buttons exposed by the prompt input view instead of
+        // creating our own — the prompt owns the visual placement now.
+        generateButton = generatePromptInput.generateButton
+        generateCancelButton = generatePromptInput.cancelButton
 
-        // Model / Resolution / Duration dropdowns.
+        // Model / Resolution / Duration dropdowns. All `.large` so they
+        // share a baseline with the action buttons.
         generateModelPopup = NSPopUpButton()
         generateModelPopup.translatesAutoresizingMaskIntoConstraints = false
+        generateModelPopup.controlSize = .large
         for model in LeonardoModel.allCases {
             generateModelPopup.addItem(withTitle: model.displayName)
             generateModelPopup.lastItem?.representedObject = model.rawValue
@@ -895,76 +964,90 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
         generateResolutionPopup = NSPopUpButton()
         generateResolutionPopup.translatesAutoresizingMaskIntoConstraints = false
+        generateResolutionPopup.controlSize = .large
         generateResolutionPopup.target = self
         generateResolutionPopup.action = #selector(generateResolutionChanged)
 
         generateDurationPopup = NSPopUpButton()
         generateDurationPopup.translatesAutoresizingMaskIntoConstraints = false
+        generateDurationPopup.controlSize = .large
         generateDurationPopup.target = self
         generateDurationPopup.action = #selector(generateDurationChanged)
 
-        // Generate + Cancel buttons.
-        generateButton = NSButton(title: "Generate",
-                                  target: self,
-                                  action: #selector(generateClicked))
-        generateButton.bezelStyle = .rounded
-        generateButton.keyEquivalent = "\r" // Return key triggers it
-        generateButton.controlSize = .large
+        // Stop the popups from compressing their titles to "1..." / "108..."
+        // when the row gets tight. Strong compression resistance forces
+        // the row's flexible spacer to absorb shrinkage instead.
+        for popup in [generateModelPopup, generateDurationPopup, generateResolutionPopup] {
+            popup?.setContentCompressionResistancePriority(.required, for: .horizontal)
+            popup?.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        }
 
-        generateCancelButton = NSButton(title: "Cancel",
-                                        target: self,
-                                        action: #selector(generateCancelClicked))
-        generateCancelButton.bezelStyle = .rounded
-        generateCancelButton.controlSize = .large
-        generateCancelButton.isHidden = true
-
-        // One horizontal row that holds everything: each option dropdown
-        // is a small caption-over-control group, then a flexible spacer
-        // pushes the action buttons to the right edge.
-        let buttonStack = NSStackView(views: [generateCancelButton, generateButton])
-        buttonStack.orientation = .horizontal
-        buttonStack.spacing = 8
-        buttonStack.alignment = .centerY
-
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Dropdowns live on their own row now since Generate/Cancel
+        // moved inside the prompt input. Spacing is generous since
+        // there's room to breathe.
+        let optionsSpacer = NSView()
+        optionsSpacer.translatesAutoresizingMaskIntoConstraints = false
+        optionsSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        optionsSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let optionsRow = NSStackView(views: [
             optionGroup("MODEL",      popup: generateModelPopup),
-            optionGroup("RESOLUTION", popup: generateResolutionPopup),
             optionGroup("DURATION",   popup: generateDurationPopup),
-            spacer,
-            buttonStack,
+            optionGroup("RESOLUTION", popup: generateResolutionPopup),
+            optionsSpacer,
         ])
         optionsRow.orientation = .horizontal
         optionsRow.alignment = .bottom
-        optionsRow.spacing = 16
+        optionsRow.spacing = 28
         optionsRow.translatesAutoresizingMaskIntoConstraints = false
 
-        // Status text — shows current pipeline phase or last error.
-        generateStatusLabel = NSTextField(labelWithString:
-            "Type a prompt and hit Generate. Each clip takes 2-5 minutes and shows up in your Library.")
+        // Status text — empty by default. Only fills with text once a
+        // generation actually runs (Starting…, Generating video…, etc).
+        generateStatusLabel = NSTextField(labelWithString: "")
         generateStatusLabel.font = NSFont.systemFont(ofSize: 12)
         generateStatusLabel.textColor = .secondaryLabelColor
         generateStatusLabel.lineBreakMode = .byWordWrapping
         generateStatusLabel.maximumNumberOfLines = 0
 
+        generateProgressBar = NSProgressIndicator()
+        generateProgressBar.isIndeterminate = false
+        generateProgressBar.minValue = 0
+        generateProgressBar.maxValue = 100
+        generateProgressBar.doubleValue = 0
+        generateProgressBar.style = .bar
+        generateProgressBar.controlSize = .small
+        generateProgressBar.translatesAutoresizingMaskIntoConstraints = false
+        generateProgressBar.isHidden = true
+
         // Restore previously-saved selections.
         loadGenerateSelections()
+        refreshCostLabel()
 
         // Subscribe to phase changes so the status label updates live.
         NotificationCenter.default.addObserver(
             self, selector: #selector(generatePhaseChanged),
             name: LeonardoService.phaseChangedNotification, object: nil)
 
+        // Instruction caption at the top — explains how to attach
+        // images and submit. Sits between the pane heading and the
+        // prompt box itself.
+        let instructionLabel = NSTextField(labelWithString:
+            "Type a prompt and hit Generate. Drag in or click the photo icon to attach an image as a starting frame.")
+        instructionLabel.font = NSFont.systemFont(ofSize: 12)
+        instructionLabel.textColor = .secondaryLabelColor
+        instructionLabel.lineBreakMode = .byWordWrapping
+        instructionLabel.maximumNumberOfLines = 0
+
         let pane = NSStackView(views: [
-            generatePromptField, optionsRow, generateStatusLabel,
+            instructionLabel,
+            generatePromptInput,
+            optionsRow,
+            generateStatusLabel,
+            generateProgressBar,
         ])
         pane.orientation = .vertical
         pane.alignment = .leading
-        pane.spacing = 18
+        pane.spacing = 14
         pane.distribution = .fill
         pane.setHuggingPriority(.defaultLow, for: .horizontal)
         fillWidth(pane)
@@ -989,13 +1072,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var currentSelectedModel: LeonardoModel {
         let raw = (generateModelPopup?.selectedItem?.representedObject as? String)
             ?? Preferences.shared.generateModel
-        return LeonardoModel(rawValue: raw) ?? .veo31Fast
+        return LeonardoModel(rawValue: raw) ?? .ltxv23Pro
     }
 
     /// Apply saved selections to the three popups, also rebuilding
     /// resolution + duration lists so they match the model.
     private func loadGenerateSelections() {
-        let savedModel = LeonardoModel(rawValue: Preferences.shared.generateModel) ?? .veo31Fast
+        let savedModel = LeonardoModel(rawValue: Preferences.shared.generateModel) ?? .ltxv23Pro
         if let idx = LeonardoModel.allCases.firstIndex(of: savedModel) {
             generateModelPopup.selectItem(at: idx)
         }
@@ -1046,24 +1129,54 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         if let dur = generateDurationPopup.selectedItem?.representedObject as? Int {
             Preferences.shared.generateDuration = dur
         }
+        refreshCostLabel()
     }
 
     @objc private func generateResolutionChanged() {
         if let res = generateResolutionPopup.selectedItem?.representedObject as? String {
             Preferences.shared.generateResolution = res
         }
+        refreshCostLabel()
     }
 
     @objc private func generateDurationChanged() {
         if let dur = generateDurationPopup.selectedItem?.representedObject as? Int {
             Preferences.shared.generateDuration = dur
         }
+        refreshCostLabel()
+    }
+
+    // MARK: Cost label
+
+    /// Recompute the cost estimate and bake it into the Generate button
+    /// title — "Generate · ~$6.34". Called on every parameter change.
+    /// While a generation is running, the title stays as "Generating…"
+    /// (managed by the progress code) and we leave it alone.
+    private func refreshCostLabel() {
+        guard let button = generateButton else { return }
+        let model = currentSelectedModel
+        let resRaw = (generateResolutionPopup?.selectedItem?.representedObject as? String)
+            ?? model.defaultResolution.rawValue
+        let resolution = LeonardoResolution(rawValue: resRaw) ?? model.defaultResolution
+        let duration = (generateDurationPopup?.selectedItem?.representedObject as? Int)
+            ?? model.defaultDuration
+        let hasStart = generatePromptInput?.startFrameImageId != nil
+        let hasEnd = generatePromptInput?.endFrameImageId != nil
+        let cost = model.estimatedCostUSD(resolution: resolution,
+                                           duration: duration,
+                                           hasStartFrame: hasStart,
+                                           hasEndFrame: hasEnd)
+        // Only update the title when the button is in its idle state —
+        // never overwrite "Generating…" or other transient states.
+        if button.isEnabled {
+            button.title = String(format: "Generate · ~$%.2f", cost)
+        }
     }
 
     // MARK: Generate actions
 
     @objc private func generateClicked() {
-        let prompt = generatePromptField.stringValue
+        let prompt = generatePromptInput.promptText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else {
             generateStatusLabel.stringValue = "Type something into the prompt first."
@@ -1076,18 +1189,26 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         let duration = (generateDurationPopup.selectedItem?.representedObject as? Int)
             ?? model.defaultDuration
 
+        let startFrame = generatePromptInput.startFrameImageId.map { LeonardoImageRef.uploaded(id: $0) }
+        let endFrame = generatePromptInput.endFrameImageId.map { LeonardoImageRef.uploaded(id: $0) }
+
         generateButton.isEnabled = false
         generateCancelButton.isHidden = false
         generateStatusLabel.stringValue = "Starting…"
+        startProgressTracking(for: model, clipDuration: duration)
+
         LeonardoService.shared.generate(prompt: prompt,
                                          model: model,
                                          resolution: resolution,
-                                         duration: duration) { [weak self] result in
+                                         duration: duration,
+                                         startFrame: startFrame,
+                                         endFrame: endFrame) { [weak self] result in
             guard let self = self else { return }
             self.generateButton.isEnabled = true
             self.generateCancelButton.isHidden = true
             switch result {
             case .success(let url):
+                self.completeProgress()
                 self.generateStatusLabel.stringValue = "Saved to your Library and set as wallpaper."
                 self.controller?.setVideoFile(url)
                 self.loadValues()
@@ -1095,16 +1216,24 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
                     self.refreshLibrary()
                 }
             case .failure(let error):
+                self.stopProgressTracking()
                 self.generateStatusLabel.stringValue = "Failed: \(error.localizedDescription)"
             }
+            // Restore the "Generate · ~$x.xx" title now that the button
+            // is back to its idle state.
+            self.refreshCostLabel()
         }
     }
 
     @objc private func generateCancelClicked() {
         LeonardoService.shared.cancel()
+        stopProgressTracking()
     }
 
     @objc private func generatePhaseChanged() {
+        // Progress bar updates come from the timer, not from phase changes —
+        // phase changes are too sparse to drive a smooth bar. We just use
+        // the phase to keep the status label honest.
         let phase = LeonardoService.shared.phase
         switch phase {
         case .idle, .complete:
@@ -1112,8 +1241,75 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         case .failed(let msg):
             generateStatusLabel?.stringValue = "Failed: \(msg)"
         default:
+            // tickProgress() will overwrite this with elapsed time on the
+            // next half-second, but updating now feels more responsive.
             generateStatusLabel?.stringValue = phase.label
         }
+    }
+
+    // MARK: Generate progress
+
+    /// Begin the elapsed-time / progress-bar animation for a generation.
+    /// We don't get true progress from Leonardo's API, so the bar is paced
+    /// off the model's expected duration and the actual clock — fills to
+    /// 95% over expected duration, then holds until completion.
+    private func startProgressTracking(for model: LeonardoModel, clipDuration: Int) {
+        generateStartTime = Date()
+        generateExpectedDuration = model.expectedSeconds(forClipDuration: clipDuration)
+        generateProgressBar.isHidden = false
+        generateProgressBar.doubleValue = 5
+        generateProgressTimer?.invalidate()
+        generateProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.tickProgress()
+        }
+    }
+
+    /// Snap to 100% briefly so the user sees the bar fill, then hide.
+    private func completeProgress() {
+        generateProgressTimer?.invalidate()
+        generateProgressTimer = nil
+        generateProgressBar.doubleValue = 100
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self = self else { return }
+            self.generateProgressBar.isHidden = true
+            self.generateProgressBar.doubleValue = 0
+            self.generateStartTime = nil
+        }
+    }
+
+    /// Stop and hide without the celebratory snap (used on cancel/error).
+    private func stopProgressTracking() {
+        generateProgressTimer?.invalidate()
+        generateProgressTimer = nil
+        generateProgressBar.isHidden = true
+        generateProgressBar.doubleValue = 0
+        generateStartTime = nil
+    }
+
+    /// Advance the bar based on real elapsed time, and append an elapsed
+    /// counter to the status text so the user knows it's still alive.
+    private func tickProgress() {
+        guard let start = generateStartTime else { return }
+        let elapsed = Date().timeIntervalSince(start)
+        let pct = min(95.0, (elapsed / generateExpectedDuration) * 95.0)
+        generateProgressBar.doubleValue = pct
+
+        let phase = LeonardoService.shared.phase
+        let label: String
+        switch phase {
+        case .starting:    label = "Starting…"
+        case .generating:  label = "Generating video…"
+        case .downloading: label = "Downloading video…"
+        default:           return
+        }
+        generateStatusLabel.stringValue = "\(label)  \(formatElapsed(elapsed))"
+    }
+
+    private func formatElapsed(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        return m > 0 ? "\(m)m \(s)s" : "\(s)s"
     }
 
     // MARK: About
