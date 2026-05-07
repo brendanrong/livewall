@@ -28,7 +28,7 @@ git add Sources/LeonardoService.swift Sources/Preferences.swift \
         Sources/PromptInputView.swift dev.sh release.sh
 git commit -m "feat: add Veo 3 Fast and reorder Generate pane
 
-Veo 3 Fast (1080p) added as a new model. Routed to Leonardo's v1
+Veo 3 Fast (1080p) added as a new model. Routed through the v1
 generations-image-to-video / generations-text-to-video endpoints since
 the v2 unified endpoint rejected every Veo body shape we tried. The
 v1 body uses imageId/imageType + a resolution enum instead of
@@ -77,12 +77,12 @@ Veo 3 Fast joins the model lineup, plus a cleaner Generate pane layout.
 
 ## What's new
 
-- Veo 3 Fast (1080p) added as a new model. Runs on Leonardo's v1 generation endpoints.
+- Veo 3 Fast (1080p) added as a new model.
 - Model, duration, and resolution dropdowns moved above the prompt box for a clearer top to bottom flow.
 
 ## Changed
 
-- LTX 2.3 Pro now offers 1080p and 1440p only. The 4K option's wrapped envelope path was inconsistent in practice and has been pulled until it stabilises.
+- LTX 2.3 Pro now offers 1080p and 1440p only. The 4K option was pulled until it works reliably.
 
 ## Install
 
