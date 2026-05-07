@@ -22,22 +22,25 @@ if [ -n "$(git status --porcelain Sources/Generated 2>/dev/null || true)" ]; the
     exit 1
 fi
 
-echo "→ Commit 1/2: Veo 3 Fast and Generate pane reorder"
+echo "→ Commit 1/2: growable prompt, surface failure reasons, drop LTX 4K"
 git add Sources/LeonardoService.swift Sources/Preferences.swift \
         Sources/PreferencesWindow.swift Sources/ImageUploadService.swift \
         Sources/PromptInputView.swift dev.sh release.sh
-git commit -m "feat: add Veo 3 Fast and reorder Generate pane
+git commit -m "fix: growable prompt, surface failure reasons, drop LTX 4K
 
-Veo 3 Fast (1080p) added as a new model. Routed through the v1
-generations-image-to-video / generations-text-to-video endpoints since
-the v2 unified endpoint rejected every Veo body shape we tried. The
-v1 body uses imageId/imageType + a resolution enum instead of
-guidances + width/height.
+Prompt box swapped to NSTextView in NSScrollView so it grows as you
+type, capped at five lines then scrolls past that. Stock config —
+no acceptableDragTypes, acceptsFirstResponder, or custom NSClipView
+overrides. Placeholder is drawn inside the textView so there's no
+overlay sibling that could hijack clicks.
 
-Generate pane now shows model, duration, and resolution dropdowns
-above the prompt box for a clearer top to bottom flow. LTX 2.3 Pro's
-4K option pulled for now since the wrapped envelope path was
-inconsistent in practice; LTX is 1080p / 1440p only.
+Failed generations now extract failureReason / errorMessage / error
+fields from the response and show them inline, instead of showing a
+generic 'failed' message. Generic message no longer leaks the API
+provider name.
+
+LTX 2.3 Pro 4K pulled. The wrapped envelope path was inconsistent
+in practice; LTX is 1080p and 1440p only.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
@@ -73,16 +76,16 @@ echo ""
 echo "→ Creating GitHub release…"
 NOTES_FILE=$(mktemp -t livewall-release-notes)
 cat > "$NOTES_FILE" <<'EOF'
-Veo 3 Fast joins the model lineup, plus a cleaner Generate pane layout.
+Polish pass on the Generate pane. Prompt grows properly, failures are honest.
 
-## What's new
+## What's fixed
 
-- Veo 3 Fast (1080p) added as a new model.
-- Model, duration, and resolution dropdowns moved above the prompt box for a clearer top to bottom flow.
+- Prompt box now actually grows as you type, capped at 5 lines then scrolls. The previous build had this regress.
+- Failed generations now show the specific reason from the server when one's available, instead of a generic message.
 
 ## Changed
 
-- LTX 2.3 Pro now offers 1080p and 1440p only. The 4K option was pulled until it works reliably.
+- LTX 2.3 Pro's 4K option pulled. The wrapped envelope path was inconsistent in practice; LTX is 1080p / 1440p only.
 
 ## Install
 

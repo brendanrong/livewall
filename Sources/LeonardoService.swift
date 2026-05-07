@@ -54,9 +54,7 @@ enum LeonardoModel: String, CaseIterable {
     }
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
-    /// LTX 2.3 Pro tops out at 1440p — 4K via the wrapped-envelope path
-    /// looked promising but Leonardo's response is inconsistent in
-    /// practice, so it's removed for now. Veo 3 Fast is 1080p only.
+    /// LTX 2.3 Pro tops out at 1440p. Veo 3 Fast is 1080p only.
     var resolutions: [LeonardoResolution] {
         switch self {
         case .kling30:        return [.fullHD]
@@ -441,7 +439,18 @@ final class LeonardoService {
                     return
                 }
                 if status == "FAILED" {
-                    completion(.failure(Self.error("Leonardo reported the generation failed")))
+                    // Try to surface a specific reason if the response
+                    // gave us one. Otherwise show a generic message and
+                    // log the full gen object for diagnostics.
+                    let reason = (gen["failureReason"] as? String)
+                        ?? (gen["errorMessage"] as? String)
+                        ?? (gen["error"] as? String)
+                    Self.debugLog("poll FAILED gen=\(gen)")
+                    if let reason = reason, !reason.isEmpty {
+                        completion(.failure(Self.error("Generation failed: \(reason)")))
+                    } else {
+                        completion(.failure(Self.error("Generation failed on the server")))
+                    }
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

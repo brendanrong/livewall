@@ -13,23 +13,17 @@ final class PromptInputView: NSView {
     // MARK: - Public API (kept stable for PreferencesWindow)
 
     var promptText: String {
-        get { textField.stringValue }
-        set { textField.stringValue = newValue }
+        get { textView.string }
+        set {
+            textView.string = newValue
+            textView.needsDisplay = true
+            recomputeTextHeight()
+        }
     }
 
     var placeholderString: String {
-        get { textField.placeholderAttributedString?.string ?? textField.placeholderString ?? "" }
-        set {
-            // Use a lighter shade than NSTextField's default placeholder
-            // colour so the example reads as a hint rather than dimmed
-            // user input.
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: textField.font ?? NSFont.systemFont(ofSize: 14),
-                .foregroundColor: NSColor.tertiaryLabelColor,
-            ]
-            textField.placeholderAttributedString = NSAttributedString(
-                string: newValue, attributes: attrs)
-        }
+        get { textView.placeholderString }
+        set { textView.placeholderString = newValue; textView.needsDisplay = true }
     }
 
     var startFrameImageId: String? {
@@ -60,7 +54,11 @@ final class PromptInputView: NSView {
 
     // MARK: - Subviews
 
-    private let textField = NSTextField()
+    fileprivate let textView = PromptTextView(frame: .zero)
+    private let scrollView = NSScrollView()
+    private var scrollViewHeightConstraint: NSLayoutConstraint!
+    private static let minTextHeight: CGFloat = 28
+    private static let maxTextHeight: CGFloat = 110  // ~5 lines at 14pt
     private let folderButton = NSButton()
     private let chipsRow = NSStackView()
     private let dashedBorder = CAShapeLayer()
@@ -101,19 +99,36 @@ final class PromptInputView: NSView {
         chipsRow.spacing = 6
         chipsRow.translatesAutoresizingMaskIntoConstraints = false
 
-        // Bare text field. No bezel, no border, no background — the
-        // rounded-rect look is on the parent's layer.
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.isBezeled = false
-        textField.isBordered = false
-        textField.drawsBackground = false
-        textField.font = NSFont.systemFont(ofSize: 14)
-        textField.focusRingType = .none
-        textField.target = self
-        textField.action = #selector(submitFromField)
-        textField.cell?.usesSingleLineMode = true
-        textField.cell?.wraps = false
-        textField.cell?.isScrollable = true
+        // NSTextView wrapped in NSScrollView. Stock config — no
+        // overrides of acceptsFirstResponder / acceptableDragTypes /
+        // NSClipView. Placeholder is drawn inside PromptTextView's
+        // draw(_:) so there's no overlay sibling that could intercept
+        // clicks.
+        textView.host = self
+        textView.delegate = self
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = NSColor.labelColor
+        textView.drawsBackground = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                  height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.documentView = textView
 
         // Generate + Cancel — bottom-right.
         generateButton.bezelStyle = .rounded
@@ -170,19 +185,26 @@ final class PromptInputView: NSView {
         bottomBar.setViews([cancelButton, generateButton], in: .trailing)
 
         addSubview(chipsRow)
-        addSubview(textField)
+        addSubview(scrollView)
         addSubview(bottomBar)
+
+        // Height constraint mutated from textDidChange so the box
+        // grows up to maxTextHeight (~5 lines), then scrolls past.
+        scrollViewHeightConstraint = scrollView.heightAnchor.constraint(
+            equalToConstant: Self.minTextHeight)
+        scrollViewHeightConstraint.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
             chipsRow.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             chipsRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             chipsRow.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
 
-            textField.topAnchor.constraint(equalTo: chipsRow.bottomAnchor, constant: 4),
-            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            scrollView.topAnchor.constraint(equalTo: chipsRow.bottomAnchor, constant: 4),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            scrollViewHeightConstraint,
 
-            bottomBar.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 8),
+            bottomBar.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8),
             bottomBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             bottomBar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
@@ -192,6 +214,21 @@ final class PromptInputView: NSView {
         ])
 
         registerForDraggedTypes([.fileURL])
+    }
+
+    // MARK: - Auto-grow
+
+    fileprivate func recomputeTextHeight() {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let inset = textView.textContainerInset.height * 2
+        let measured = ceil(used.height + inset)
+        let clamped = max(Self.minTextHeight, min(Self.maxTextHeight, measured))
+        if abs(scrollViewHeightConstraint.constant - clamped) > 0.5 {
+            scrollViewHeightConstraint.constant = clamped
+        }
     }
 
     // MARK: - Border state
@@ -219,7 +256,7 @@ final class PromptInputView: NSView {
 
     // MARK: - Drag and drop
 
-    private func acceptableImageURL(in pasteboard: NSPasteboard) -> URL? {
+    fileprivate func acceptableImageURL(in pasteboard: NSPasteboard) -> URL? {
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
             .urlReadingFileURLsOnly: true,
             .urlReadingContentsConformToTypes: ["public.image"],
@@ -306,9 +343,89 @@ final class PromptInputView: NSView {
 
     // MARK: - Button actions
 
-    @objc private func submitFromField() { onSubmit?() }
     @objc private func generateClicked() { onSubmit?() }
     @objc private func cancelClicked() { onCancel?() }
+}
+
+// MARK: - NSTextViewDelegate
+
+extension PromptInputView: NSTextViewDelegate {
+    func textDidChange(_ notification: Notification) {
+        recomputeTextHeight()
+    }
+}
+
+// MARK: - PromptTextView
+
+/// NSTextView subclass that:
+///   1. Draws a placeholder when string is empty (NSTextView has none).
+///   2. Submits on plain Enter; Shift+Enter inserts a newline.
+///   3. Forwards image-URL drops to the host so a drop over the
+///      textView attaches as a chip rather than inserting the path.
+///
+/// Critically does NOT override `acceptsFirstResponder` or
+/// `acceptableDragTypes` — those broke text input in earlier attempts.
+fileprivate final class PromptTextView: NSTextView {
+
+    weak var host: PromptInputView?
+
+    var placeholderString: String = "" {
+        didSet { needsDisplay = true }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if isReturn && mods.isEmpty {
+            host?.onSubmit?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholderString.isEmpty else { return }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 14),
+            .foregroundColor: NSColor.tertiaryLabelColor,
+            .paragraphStyle: style,
+        ]
+        let inset = textContainerInset
+        let pad = textContainer?.lineFragmentPadding ?? 0
+        let drawRect = NSRect(
+            x: inset.width + pad,
+            y: inset.height,
+            width: bounds.width - 2 * (inset.width + pad),
+            height: bounds.height - 2 * inset.height
+        )
+        (placeholderString as NSString).draw(in: drawRect, withAttributes: attrs)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if let host = host,
+           host.acceptableImageURL(in: sender.draggingPasteboard) != nil {
+            return host.draggingEntered(sender)
+        }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let host = host {
+            host.draggingExited(sender)
+        }
+        super.draggingExited(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if let host = host,
+           host.acceptableImageURL(in: sender.draggingPasteboard) != nil {
+            return host.performDragOperation(sender)
+        }
+        return super.performDragOperation(sender)
+    }
 }
 
 // MARK: - ChipView

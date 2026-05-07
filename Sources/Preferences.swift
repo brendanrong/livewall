@@ -285,9 +285,9 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.generateModel) }
     }
 
-    /// Last-selected resolution mode. Default: 1440p (LTX 2.3 Pro's top
-    /// resolution). The dropdown clamps to whatever the picked model
-    /// actually supports.
+    /// Last-selected resolution mode. Default: 1440p (LTX 2.3 Pro's
+    /// top resolution). The dropdown clamps to whatever the picked
+    /// model actually supports.
     var generateResolution: String {
         get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_1440" }
         set { defaults.set(newValue, forKey: Key.generateResolution) }
