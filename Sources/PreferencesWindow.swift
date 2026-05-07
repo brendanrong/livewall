@@ -932,7 +932,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         // second is end frame.
         generatePromptInput = PromptInputView()
         generatePromptInput.placeholderString =
-            "A cinematic shot of red smoke drifting on a black background"
+            "A cinematic shot of red smoke drifting on a black background..."
         generatePromptInput.uploadHandler = { url, completion in
             ImageUploadService.shared.uploadImage(at: url, completion: completion)
         }
@@ -1028,28 +1028,68 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             self, selector: #selector(generatePhaseChanged),
             name: LeonardoService.phaseChangedNotification, object: nil)
 
-        // Instruction caption at the top — explains how to attach
-        // images and submit. Sits between the pane heading and the
-        // prompt box itself.
-        let instructionLabel = NSTextField(labelWithString:
-            "Type a prompt and hit Generate. Drag in or click the photo icon to attach an image as a starting frame.")
-        instructionLabel.font = NSFont.systemFont(ofSize: 12)
-        instructionLabel.textColor = .secondaryLabelColor
-        instructionLabel.lineBreakMode = .byWordWrapping
-        instructionLabel.maximumNumberOfLines = 0
+        // Two captions explaining the modes (text to video, image to
+        // video) with bold prefixes, plus a quieter reassurance line
+        // below about the cost label. NSAttributedString gives us inline
+        // bold without needing two NSTextFields per line.
+        let captionFont = NSFont.systemFont(ofSize: 12)
+        let captionBold = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let captionAttrs: [NSAttributedString.Key: Any] = [
+            .font: captionFont,
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let captionBoldAttrs: [NSAttributedString.Key: Any] = [
+            .font: captionBold,
+            .foregroundColor: NSColor.labelColor,
+        ]
+
+        func captionLabel(boldPrefix: String, body: String) -> NSTextField {
+            let s = NSMutableAttributedString()
+            s.append(NSAttributedString(string: boldPrefix, attributes: captionBoldAttrs))
+            s.append(NSAttributedString(string: " " + body, attributes: captionAttrs))
+            let label = NSTextField(labelWithAttributedString: s)
+            label.lineBreakMode = .byWordWrapping
+            label.maximumNumberOfLines = 0
+            return label
+        }
+
+        let textToVideoLabel = captionLabel(
+            boldPrefix: "Text to Video:",
+            body: "Type a prompt and hit Generate.")
+        let imageToVideoLabel = captionLabel(
+            boldPrefix: "Image to Video:",
+            body: "Drag an image into the prompt box (or click the photo icon) to use as a starting frame. Add a second image as an ending frame and the model will interpolate between them.")
+
+        // Reassurance caption — generations are free for the user, the
+        // cost label is just there for transparency about what each
+        // generation actually burns through on the API bill.
+        let costNoteLabel = NSTextField(labelWithString:
+            "Don't worry, all generations are free for you to use. The cost is just there so you know how much it's burning me.")
+        costNoteLabel.font = NSFont.systemFont(ofSize: 11)
+        costNoteLabel.textColor = .tertiaryLabelColor
+        costNoteLabel.lineBreakMode = .byWordWrapping
+        costNoteLabel.maximumNumberOfLines = 0
 
         let pane = NSStackView(views: [
-            instructionLabel,
-            generatePromptInput,
+            textToVideoLabel,
+            imageToVideoLabel,
+            costNoteLabel,
             optionsRow,
+            generatePromptInput,
             generateStatusLabel,
             generateProgressBar,
         ])
         pane.orientation = .vertical
         pane.alignment = .leading
-        pane.spacing = 14
+        pane.spacing = 18
         pane.distribution = .fill
         pane.setHuggingPriority(.defaultLow, for: .horizontal)
+        // Tight spacing inside the explanation block, then a real gap
+        // before the prompt box so the captions feel like a separate
+        // section.
+        pane.setCustomSpacing(6, after: textToVideoLabel)
+        pane.setCustomSpacing(6, after: imageToVideoLabel)
+        pane.setCustomSpacing(20, after: costNoteLabel)
         fillWidth(pane)
         return pane
     }

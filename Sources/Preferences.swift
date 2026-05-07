@@ -279,16 +279,17 @@ final class Preferences {
     // MARK: - Generate pane state
 
     /// Last-selected video model in the Generate pane. Default: LTX 2.3 Pro
-    /// since it's the only one that supports native 4K.
+    /// (highest quality of the four; goes up to 1440p).
     var generateModel: String {
         get { defaults.string(forKey: Key.generateModel) ?? "ltxv-2.3-pro" }
         set { defaults.set(newValue, forKey: Key.generateModel) }
     }
 
-    /// Last-selected resolution mode. Default: 4K — LTX 2.3 Pro accepts
-    /// it via the wrapped-envelope path (see LeonardoService).
+    /// Last-selected resolution mode. Default: 1440p (LTX 2.3 Pro's top
+    /// resolution). The dropdown clamps to whatever the picked model
+    /// actually supports.
     var generateResolution: String {
-        get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_2160" }
+        get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_1440" }
         set { defaults.set(newValue, forKey: Key.generateResolution) }
     }
 

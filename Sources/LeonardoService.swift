@@ -6,17 +6,31 @@ import Foundation
 /// Each carries its own duration list and supported resolutions because
 /// the underlying Leonardo models all have different constraints.
 enum LeonardoModel: String, CaseIterable {
+    // Models on the v2 unified generations endpoint.
     case kling30        = "kling-3.0"
     case seedance20Fast = "seedance-2.0-fast"
     case ltxv23Pro      = "ltxv-2.3-pro"
-    // Veo 3.1 Fast intentionally omitted — Leonardo's REST endpoint for
-    // it doesn't share the same shape as the others. Tracked for later.
+    // Veo runs on the older v1 generations-image-to-video / -text-to-video
+    // endpoints, with a different body shape (imageId/imageType +
+    // resolution enum, not guidances + width/height). The v1 model enum
+    // maxes out at Veo 3 right now; Veo 3.1 isn't in the public API yet.
+    case veo3Fast       = "VEO3FAST"
 
     var displayName: String {
         switch self {
         case .kling30:        return "Kling 3.0"
         case .seedance20Fast: return "Seedance 2.0 Fast"
         case .ltxv23Pro:      return "LTX 2.3 Pro"
+        case .veo3Fast:       return "Veo 3 Fast"
+        }
+    }
+
+    /// True if this model uses the v1 generations-image-to-video /
+    /// generations-text-to-video endpoint family. False means v2.
+    var usesV1Endpoint: Bool {
+        switch self {
+        case .veo3Fast: return true
+        default:        return false
         }
     }
 
@@ -26,6 +40,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30:        return [3, 5, 7, 10, 15]
         case .seedance20Fast: return [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         case .ltxv23Pro:      return [6, 8, 10]
+        case .veo3Fast:       return [4, 6, 8]   // per Leonardo docs
         }
     }
 
@@ -34,39 +49,40 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30:        return 5
         case .seedance20Fast: return 8
         case .ltxv23Pro:      return 8
+        case .veo3Fast:       return 8
         }
     }
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
-    /// LTX 2.3 Pro accepts 4K via a quirky request shape: `mode:
-    /// RESOLUTION_2160` with width/height set to 1080p dimensions and
-    /// the whole thing wrapped in `{"request": {...}}`. Leonardo
-    /// upscales internally. See `startGeneration` for the special-case.
+    /// LTX 2.3 Pro tops out at 1440p — 4K via the wrapped-envelope path
+    /// looked promising but Leonardo's response is inconsistent in
+    /// practice, so it's removed for now. Veo 3 Fast is 1080p only.
     var resolutions: [LeonardoResolution] {
         switch self {
         case .kling30:        return [.fullHD]
         case .seedance20Fast: return [.fullHD]
-        case .ltxv23Pro:      return [.fullHD, .qhd1440, .uhd4K]
+        case .ltxv23Pro:      return [.fullHD, .qhd1440]
+        case .veo3Fast:       return [.fullHD]
         }
     }
 
     var defaultResolution: LeonardoResolution {
         switch self {
-        case .ltxv23Pro: return .uhd4K     // The reason this model is here.
+        case .ltxv23Pro: return .qhd1440
         default:         return .fullHD
         }
     }
 
     /// Whether this model supports an optional start-frame image.
     var supportsStartFrame: Bool {
-        // All three currently allow guidances.start_frame per docs.
+        // All four currently allow guidances.start_frame per docs.
         return true
     }
 
     /// Whether this model supports an optional end frame (transition video).
     /// End frame requires start frame to also be set.
     var supportsEndFrame: Bool {
-        // Kling, Seedance, and LTX all document end_frame.
+        // Kling, Seedance, Veo, and LTX all document end_frame.
         return true
     }
 
@@ -77,7 +93,8 @@ enum LeonardoModel: String, CaseIterable {
         switch self {
         case .kling30:        base = 180  // 3 min for 5s
         case .seedance20Fast: base = 90   // 1.5 min for 8s
-        case .ltxv23Pro:      base = 240  // 4 min for 8s, 4K is heavier
+        case .ltxv23Pro:      base = 200  // ~3.3 min for 8s at 1440p
+        case .veo3Fast:       base = 120  // ~2 min for 8s
         }
         let scale = 1.0 + Double(max(duration, 1) - 5) * 0.04
         return base * scale
@@ -96,7 +113,8 @@ enum LeonardoModel: String, CaseIterable {
         switch self {
         case .kling30:        baseRatePerSecond = 0.17  // ~$0.84 for 5s
         case .seedance20Fast: baseRatePerSecond = 0.36  // ~$1.81 for 5s
-        case .ltxv23Pro:      baseRatePerSecond = 0.45  // estimated, no observed data
+        case .ltxv23Pro:      baseRatePerSecond = 0.45  // estimated
+        case .veo3Fast:       baseRatePerSecond = 0.30  // estimated
         }
         // Resolution multiplier — pixel count scales roughly with cost.
         let resMultiplier: Double
@@ -273,90 +291,99 @@ final class LeonardoService {
                                  startFrame: LeonardoImageRef?,
                                  endFrame: LeonardoImageRef?,
                                  completion: @escaping (Result<String, Error>) -> Void) {
-        var req = URLRequest(url: v2BaseURL.appendingPathComponent("generations"))
+
+        // Per-model: pick the endpoint, build the body. Veo runs on the
+        // older v1 generations-image-to-video / generations-text-to-video
+        // endpoints with their own body shape. Everything else uses the
+        // unified v2 endpoint.
+        let url: URL
+        let body: [String: Any]
+
+        if model.usesV1Endpoint {
+            // v1 image-to-video / text-to-video. Picks the right path
+            // based on whether we have a start frame. Body uses
+            // imageId/imageType + resolution enum (RESOLUTION_1080), no
+            // guidances, no width/height. End frame is only supported on
+            // kling2_1 per docs, so we drop it for Veo.
+            let path = (startFrame != nil) ? "generations-image-to-video" : "generations-text-to-video"
+            url = v1BaseURL.appendingPathComponent(path)
+
+            var params: [String: Any] = [
+                "prompt": prompt,
+                "model": model.rawValue,
+                "duration": duration,
+                "resolution": resolution.rawValue,
+                "isPublic": false,
+            ]
+            if let sf = startFrame {
+                params["imageId"] = sf.id
+                params["imageType"] = sf.type
+            }
+            body = params
+        } else {
+            // v2 unified endpoint.
+            url = v2BaseURL.appendingPathComponent("generations")
+
+            var guidances: [String: Any] = [:]
+            if let sf = startFrame {
+                guidances["start_frame"] = [["image": ["id": sf.id, "type": sf.type]]]
+            }
+            if let ef = endFrame {
+                guidances["end_frame"] = [["image": ["id": ef.id, "type": ef.type]]]
+            }
+
+            switch model {
+            case .ltxv23Pro:
+                // 1080p / 1440p: top-level envelope, real dimensions,
+                // full LTX param set. prompt_enhance must be OFF when a
+                // start_frame is set or LTX returns VALIDATION_ERROR.
+                var params: [String: Any] = [
+                    "prompt": prompt,
+                    "duration": duration,
+                    "width": resolution.width,
+                    "height": resolution.height,
+                    "mode": resolution.rawValue,
+                    "audio": false,
+                    "quantity": 1,
+                    "prompt_enhance": (startFrame == nil) ? "AUTO" : "OFF",
+                ]
+                if !guidances.isEmpty { params["guidances"] = guidances }
+                body = [
+                    "model": model.rawValue,
+                    "public": false,
+                    "parameters": params,
+                ]
+            case .kling30, .seedance20Fast:
+                // Plain top-level envelope. width/height set the preset.
+                var params: [String: Any] = [
+                    "prompt": prompt,
+                    "duration": duration,
+                    "width": resolution.width,
+                    "height": resolution.height,
+                ]
+                if !guidances.isEmpty { params["guidances"] = guidances }
+                body = [
+                    "model": model.rawValue,
+                    "public": false,
+                    "parameters": params,
+                ]
+            case .veo3Fast:
+                // Unreachable — handled by the v1 branch above.
+                fatalError("veo3Fast should route through usesV1Endpoint")
+            }
+        }
+
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(Secrets.leonardoAPIKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 30
 
-        // Image guidances are shaped the same across all models.
-        var guidances: [String: Any] = [:]
-        if let sf = startFrame {
-            guidances["start_frame"] = [["image": ["id": sf.id, "type": sf.type]]]
-        }
-        if let ef = endFrame {
-            guidances["end_frame"] = [["image": ["id": ef.id, "type": ef.type]]]
-        }
-
-        // Build the request body, with per-model shaping. LTX 2.3 Pro at
-        // 4K needs a quirky envelope discovered by trial: `{"request":
-        // {...}}` wrapper, mode = RESOLUTION_2160, but width/height set
-        // to 1080p dimensions. Leonardo upscales internally. Other LTX
-        // resolutions and the other models use the plain top-level
-        // envelope that's been working.
-        let body: [String: Any]
-        switch model {
-        case .ltxv23Pro where resolution == .uhd4K:
-            // 4K: wrapped envelope, 1080p dimensions, mode=2160. No
-            // `audio` or `prompt_enhance` keys — including those was
-            // what made earlier wrapper attempts fail.
-            var params: [String: Any] = [
-                "prompt": prompt,
-                "mode": LeonardoResolution.uhd4K.rawValue,
-                "quantity": 1,
-                "duration": duration,
-                "width": LeonardoResolution.fullHD.width,
-                "height": LeonardoResolution.fullHD.height,
-            ]
-            if !guidances.isEmpty { params["guidances"] = guidances }
-            body = [
-                "request": [
-                    "model": model.rawValue,
-                    "public": false,
-                    "parameters": params,
-                ]
-            ]
-        case .ltxv23Pro:
-            // 1080p / 1440p: top-level envelope, real dimensions, full
-            // LTX param set. prompt_enhance must be OFF whenever a
-            // start_frame is set or the API returns VALIDATION_ERROR.
-            var params: [String: Any] = [
-                "prompt": prompt,
-                "duration": duration,
-                "width": resolution.width,
-                "height": resolution.height,
-                "mode": resolution.rawValue,
-                "audio": false,
-                "quantity": 1,
-                "prompt_enhance": (startFrame == nil) ? "AUTO" : "OFF",
-            ]
-            if !guidances.isEmpty { params["guidances"] = guidances }
-            body = [
-                "model": model.rawValue,
-                "public": false,
-                "parameters": params,
-            ]
-        case .kling30, .seedance20Fast:
-            // Plain top-level envelope. width/height pinpoint the preset.
-            var params: [String: Any] = [
-                "prompt": prompt,
-                "duration": duration,
-                "width": resolution.width,
-                "height": resolution.height,
-            ]
-            if !guidances.isEmpty { params["guidances"] = guidances }
-            body = [
-                "model": model.rawValue,
-                "public": false,
-                "parameters": params,
-            ]
-        }
-
         let bodyData = try? JSONSerialization.data(withJSONObject: body)
         req.httpBody = bodyData
         let bodyString = bodyData.flatMap { String(data: $0, encoding: .utf8) } ?? "<nil>"
-        Self.debugLog("POST /v2/generations model=\(model.rawValue) res=\(resolution.rawValue) duration=\(duration) startFrame=\(startFrame?.id ?? "-") endFrame=\(endFrame?.id ?? "-")")
+        Self.debugLog("POST \(url.path) model=\(model.rawValue) res=\(resolution.rawValue) duration=\(duration) startFrame=\(startFrame?.id ?? "-") endFrame=\(endFrame?.id ?? "-")")
         Self.debugLog("  body=\(bodyString)")
 
         URLSession.shared.dataTask(with: req) { data, response, error in

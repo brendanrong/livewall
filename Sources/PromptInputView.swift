@@ -18,8 +18,18 @@ final class PromptInputView: NSView {
     }
 
     var placeholderString: String {
-        get { textField.placeholderString ?? "" }
-        set { textField.placeholderString = newValue }
+        get { textField.placeholderAttributedString?.string ?? textField.placeholderString ?? "" }
+        set {
+            // Use a lighter shade than NSTextField's default placeholder
+            // colour so the example reads as a hint rather than dimmed
+            // user input.
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: textField.font ?? NSFont.systemFont(ofSize: 14),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+            ]
+            textField.placeholderAttributedString = NSAttributedString(
+                string: newValue, attributes: attrs)
+        }
     }
 
     var startFrameImageId: String? {
@@ -53,8 +63,6 @@ final class PromptInputView: NSView {
     private let textField = NSTextField()
     private let folderButton = NSButton()
     private let chipsRow = NSStackView()
-    private let chipsContainer = NSView()
-    private var chipsContainerHeightConstraint: NSLayoutConstraint!
     private let dashedBorder = CAShapeLayer()
     private var isDraggingOver = false { didSet { applyBorderState() } }
 
@@ -84,17 +92,14 @@ final class PromptInputView: NSView {
 
         applyBorderState()
 
-        // Chips row — wrapped in a container so we can collapse its
-        // height to zero when there are no chips. NSStackView with
-        // hidden = true doesn't reliably zero its height inside a
-        // plain superview.
+        // Chips row — added directly. NSStackView's intrinsic height
+        // is 0 when empty (no arranged subviews) and matches the
+        // chip's required 36pt height when populated, so the box
+        // grows naturally as images are attached.
         chipsRow.orientation = .horizontal
         chipsRow.alignment = .centerY
         chipsRow.spacing = 6
         chipsRow.translatesAutoresizingMaskIntoConstraints = false
-
-        chipsContainer.translatesAutoresizingMaskIntoConstraints = false
-        chipsContainer.addSubview(chipsRow)
 
         // Bare text field. No bezel, no border, no background — the
         // rounded-rect look is on the parent's layer.
@@ -164,26 +169,16 @@ final class PromptInputView: NSView {
         bottomBar.setViews([folderButton], in: .leading)
         bottomBar.setViews([cancelButton, generateButton], in: .trailing)
 
-        addSubview(chipsContainer)
+        addSubview(chipsRow)
         addSubview(textField)
         addSubview(bottomBar)
 
-        // Chips container collapses to 0pt height when empty so the
-        // text field sits flush with the top inset.
-        chipsContainerHeightConstraint = chipsContainer.heightAnchor.constraint(equalToConstant: 0)
-
         NSLayoutConstraint.activate([
-            chipsContainer.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            chipsContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            chipsContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            chipsContainerHeightConstraint,
+            chipsRow.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            chipsRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            chipsRow.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
 
-            chipsRow.topAnchor.constraint(equalTo: chipsContainer.topAnchor),
-            chipsRow.bottomAnchor.constraint(equalTo: chipsContainer.bottomAnchor),
-            chipsRow.leadingAnchor.constraint(equalTo: chipsContainer.leadingAnchor),
-            chipsRow.trailingAnchor.constraint(lessThanOrEqualTo: chipsContainer.trailingAnchor),
-
-            textField.topAnchor.constraint(equalTo: chipsContainer.bottomAnchor, constant: 4),
+            textField.topAnchor.constraint(equalTo: chipsRow.bottomAnchor, constant: 4),
             textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
 
@@ -287,12 +282,10 @@ final class PromptInputView: NSView {
             for (i, att) in self.attachments.enumerated() {
                 att.chipView.slot = self.slotLabel(for: i)
             }
-            self.updateChipsContainerHeight()
             self.onAttachmentsChanged?()
         }
         chipsRow.addArrangedSubview(chip)
         attachments.append(Attachment(chipView: chip))
-        updateChipsContainerHeight()
 
         chip.state = .uploading
         onAttachmentsChanged?()
@@ -309,10 +302,6 @@ final class PromptInputView: NSView {
 
     private func slotLabel(for index: Int) -> String {
         index == 0 ? "start frame" : "end frame"
-    }
-
-    private func updateChipsContainerHeight() {
-        chipsContainerHeightConstraint.constant = attachments.isEmpty ? 0 : 36
     }
 
     // MARK: - Button actions
