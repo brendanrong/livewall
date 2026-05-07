@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "updated": "2026-05-07",
+  "items": [
+    {
+      "id": "solar-bloom",
+      "title": "Solar Bloom",
+      "category": "Ambient",
+      "video_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/solar-bloom.mp4",
+      "thumbnail_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/solar-bloom.jpg"
+    },
+    {
+      "id": "black-marble-ocean",
+      "title": "Black Marble Ocean",
+      "category": "Abstract",
+      "video_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/black-marble-ocean.mp4",
+      "thumbnail_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/black-marble-ocean.jpg"
+    },
+    {
+      "id": "underwater-silk",
+      "title": "Underwater Silk",
+      "category": "Abstract",
+      "video_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/underwater-silk.mp4",
+      "thumbnail_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/underwater-silk.jpg"
+    },
+    {
+      "id": "crimson-flow",
+      "title": "Crimson Flow",
+      "category": "Cinematic",
+      "video_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/crimson-flow.mp4",
+      "thumbnail_url": "https://github.com/brendanrong/livewall/releases/download/featured-v1/crimson-flow.jpg"
+    }
+  ]
+}
