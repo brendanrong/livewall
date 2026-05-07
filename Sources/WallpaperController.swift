@@ -21,6 +21,22 @@ final class WallpaperController {
         if Preferences.shared.wallpaperEnabled {
             loadFromPreferences()
         }
+
+        // After sleep/wake, AVPlayer's render pipeline can get stuck
+        // (frozen frame or black screen). Rebuild the playback stack
+        // when the system resumes. Slight delay so the display server
+        // is fully back up before we ask AVPlayer to re-prime.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self,
+                  Preferences.shared.wallpaperEnabled else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.replayCurrentContent()
+            }
+        }
     }
 
     func handleScreenChange() {

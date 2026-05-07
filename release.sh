@@ -22,11 +22,11 @@ if [ -n "$(git status --porcelain Sources/Generated 2>/dev/null || true)" ]; the
     exit 1
 fi
 
-echo "→ Commit: Featured tab + sidebar reorder + landing page"
+echo "→ Commit: Featured tab + sidebar reorder + sleep/wake fix"
 git add Sources/FeaturedService.swift Sources/PreferencesWindow.swift \
-        Sources/SidebarItemButton.swift docs/index.html \
-        prep_featured.sh rename_featured.sh release.sh
-git commit -m "feat: Featured tab + sidebar reorder
+        Sources/SidebarItemButton.swift Sources/WallpaperController.swift \
+        docs/index.html prep_featured.sh rename_featured.sh release.sh
+git commit -m "feat: Featured tab + sidebar reorder + sleep/wake fix
 
 New Featured tab between Library and Generate. Loads a curated catalog
 from docs/featured.json on GitHub Pages. Each card has a thumbnail,
@@ -39,8 +39,12 @@ Sidebar reordered so content tabs (Featured / Library / Generate)
 come first, config tabs (Display / Playback / General) come after,
 About at the bottom. First-launch default lands on Featured.
 
-Landing page v2.3 release block updated to include the Featured tab
-and sidebar reorder.
+Wallpaper now recovers cleanly from sleep/wake. WallpaperController
+listens for NSWorkspace.didWakeNotification and rebuilds the AVPlayer
+pipeline (with a small delay so the display server is back up first).
+Fixes the freeze-to-black after closing the lid and reopening.
+
+Landing page v2.3 release block updated.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
@@ -78,6 +82,7 @@ The Featured tab is here. Browse curated wallpapers, click Use, done.
 
 ## What's fixed
 
+- Wallpaper now recovers cleanly from sleep/wake. No more freeze-to-black after closing the lid and reopening.
 - Prompt box now actually grows as you type, capped at 5 lines then scrolls.
 - Failed generations now show the specific reason from the server when one's available, instead of a generic message.
 
