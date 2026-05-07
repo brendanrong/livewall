@@ -22,29 +22,28 @@ if [ -n "$(git status --porcelain Sources/Generated 2>/dev/null || true)" ]; the
     exit 1
 fi
 
-echo "→ Commit: Featured tab + sidebar reorder + sleep/wake fix"
-git add Sources/FeaturedService.swift Sources/PreferencesWindow.swift \
-        Sources/SidebarItemButton.swift Sources/WallpaperController.swift \
-        docs/index.html prep_featured.sh rename_featured.sh release.sh
-git commit -m "feat: Featured tab + sidebar reorder + sleep/wake fix
+echo "→ Commit: Kling 4K + Veo 3.1 Fast + dock-click opens Settings"
+git add Sources/LeonardoService.swift Sources/AppDelegate.swift \
+        Sources/Info.plist docs/index.html release.sh
+git commit -m "feat: Kling 3.0 4K + Veo 3.1 Fast + dock-click opens Settings
 
-New Featured tab between Library and Generate. Loads a curated catalog
-from docs/featured.json on GitHub Pages. Each card has a thumbnail,
-title, category, and a Use button that downloads the video to
-~/Movies/LiveWall/Library/Featured/ and sets it as wallpaper. Solves
-the cold-start onboarding problem — first-launch user has things to
-pick from instantly.
+Kling 3.0 now offers 4K output. Adds .uhd4K to Kling's resolution
+list and includes the \`mode\` parameter explicitly in the request
+body so the API honors the requested resolution (without it, the
+endpoint silently defaults to RESOLUTION_1080).
 
-Sidebar reordered so content tabs (Featured / Library / Generate)
-come first, config tabs (Display / Playback / General) come after,
-About at the bottom. First-launch default lands on Featured.
+Veo 3.0 Fast upgraded to Veo 3.1 Fast (model id VEO3_1FAST). Still
+1080p only — Veo's API explicitly rejects 4K dimensions. The v1
+request body now includes width and height alongside resolution
+to match the documented schema.
 
-Wallpaper now recovers cleanly from sleep/wake. WallpaperController
-listens for NSWorkspace.didWakeNotification and rebuilds the AVPlayer
-pipeline (with a small delay so the display server is back up first).
-Fixes the freeze-to-black after closing the lid and reopening.
-
-Landing page v2.3 release block updated.
+Clicking the dock icon now opens Settings. Previously dock clicks
+did nothing because the wallpaper windows count as visible NSWindows
+in AppKit's bookkeeping, so the default reopen handler thought there
+was already a visible window to bring forward. Now the reopen
+handler always shows the Settings window. Also calls
+applyDockIconVisibility() at launch so the saved preference is
+honoured across sessions.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
@@ -73,22 +72,16 @@ echo ""
 echo "→ Creating GitHub release…"
 NOTES_FILE=$(mktemp -t livewall-release-notes)
 cat > "$NOTES_FILE" <<'EOF'
-The Featured tab is here. Browse curated wallpapers, click Use, done.
+Model upgrades and a friendlier dock icon.
 
 ## What's new
 
-- New Featured tab. Browse curated wallpapers, click Use to download and set them. No prompt, no generation, no waiting for a model to render.
-- Sidebar reordered so the content tabs (Featured / Library / Generate) come first. First-launch lands on Featured.
+- Kling 3.0 now offers 4K output alongside 1080p.
+- Veo 3 Fast upgraded to Veo 3.1 Fast. Still 1080p (Veo's API doesn't accept 4K).
 
 ## What's fixed
 
-- Wallpaper now recovers cleanly from sleep/wake. No more freeze-to-black after closing the lid and reopening.
-- Prompt box now actually grows as you type, capped at 5 lines then scrolls.
-- Failed generations now show the specific reason from the server when one's available, instead of a generic message.
-
-## Changed
-
-- LTX 2.3 Pro's 4K option pulled. The wrapped envelope path was inconsistent in practice; LTX is 1080p / 1440p only.
+- Clicking the dock icon now opens Settings, instead of doing nothing.
 
 ## Install
 

@@ -12,16 +12,16 @@ enum LeonardoModel: String, CaseIterable {
     case ltxv23Pro      = "ltxv-2.3-pro"
     // Veo runs on the older v1 generations-image-to-video / -text-to-video
     // endpoints, with a different body shape (imageId/imageType +
-    // resolution enum, not guidances + width/height). The v1 model enum
-    // maxes out at Veo 3 right now; Veo 3.1 isn't in the public API yet.
-    case veo3Fast       = "VEO3FAST"
+    // resolution enum, not guidances). Model id is VEO3_1FAST per the
+    // Veo 3.1 docs (the older Veo 3.0 was VEO3FAST).
+    case veo31Fast       = "VEO3_1FAST"
 
     var displayName: String {
         switch self {
         case .kling30:        return "Kling 3.0"
         case .seedance20Fast: return "Seedance 2.0 Fast"
         case .ltxv23Pro:      return "LTX 2.3 Pro"
-        case .veo3Fast:       return "Veo 3 Fast"
+        case .veo31Fast:       return "Veo 3.1 Fast"
         }
     }
 
@@ -29,7 +29,7 @@ enum LeonardoModel: String, CaseIterable {
     /// generations-text-to-video endpoint family. False means v2.
     var usesV1Endpoint: Bool {
         switch self {
-        case .veo3Fast: return true
+        case .veo31Fast: return true
         default:        return false
         }
     }
@@ -40,7 +40,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30:        return [3, 5, 7, 10, 15]
         case .seedance20Fast: return [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         case .ltxv23Pro:      return [6, 8, 10]
-        case .veo3Fast:       return [4, 6, 8]   // per Leonardo docs
+        case .veo31Fast:       return [4, 6, 8]   // per Leonardo docs
         }
     }
 
@@ -49,18 +49,21 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30:        return 5
         case .seedance20Fast: return 8
         case .ltxv23Pro:      return 8
-        case .veo3Fast:       return 8
+        case .veo31Fast:       return 8
         }
     }
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
-    /// LTX 2.3 Pro tops out at 1440p. Veo 3 Fast is 1080p only.
+    /// Kling 3.0 supports 1080p and 4K (skipping 720p since it's lower
+    /// than typical desktops). LTX 2.3 Pro tops out at 1440p. Seedance
+    /// 2.0 Fast and Veo 3.1 Fast are 1080p only — Veo's API explicitly
+    /// rejects 4K dimensions with "Invalid width and height combination".
     var resolutions: [LeonardoResolution] {
         switch self {
-        case .kling30:        return [.fullHD]
+        case .kling30:        return [.fullHD, .uhd4K]
         case .seedance20Fast: return [.fullHD]
         case .ltxv23Pro:      return [.fullHD, .qhd1440]
-        case .veo3Fast:       return [.fullHD]
+        case .veo31Fast:      return [.fullHD]
         }
     }
 
@@ -92,7 +95,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30:        base = 180  // 3 min for 5s
         case .seedance20Fast: base = 90   // 1.5 min for 8s
         case .ltxv23Pro:      base = 200  // ~3.3 min for 8s at 1440p
-        case .veo3Fast:       base = 120  // ~2 min for 8s
+        case .veo31Fast:       base = 120  // ~2 min for 8s
         }
         let scale = 1.0 + Double(max(duration, 1) - 5) * 0.04
         return base * scale
@@ -112,7 +115,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30:        baseRatePerSecond = 0.17  // ~$0.84 for 5s
         case .seedance20Fast: baseRatePerSecond = 0.36  // ~$1.81 for 5s
         case .ltxv23Pro:      baseRatePerSecond = 0.45  // estimated
-        case .veo3Fast:       baseRatePerSecond = 0.30  // estimated
+        case .veo31Fast:       baseRatePerSecond = 0.30  // estimated
         }
         // Resolution multiplier — pixel count scales roughly with cost.
         let resMultiplier: Double
@@ -300,9 +303,12 @@ final class LeonardoService {
         if model.usesV1Endpoint {
             // v1 image-to-video / text-to-video. Picks the right path
             // based on whether we have a start frame. Body uses
-            // imageId/imageType + resolution enum (RESOLUTION_1080), no
-            // guidances, no width/height. End frame is only supported on
-            // kling2_1 per docs, so we drop it for Veo.
+            // imageId/imageType + resolution enum + explicit width/
+            // height. End frame is only supported on kling2_1 per
+            // docs, so we drop it for Veo. Sending width/height
+            // alongside resolution gives the API both signals — useful
+            // for the 4K hopeful try where docs only list 1080p but
+            // the pixel dimensions might convince the backend.
             let path = (startFrame != nil) ? "generations-image-to-video" : "generations-text-to-video"
             url = v1BaseURL.appendingPathComponent(path)
 
@@ -311,6 +317,8 @@ final class LeonardoService {
                 "model": model.rawValue,
                 "duration": duration,
                 "resolution": resolution.rawValue,
+                "width": resolution.width,
+                "height": resolution.height,
                 "isPublic": false,
             ]
             if let sf = startFrame {
@@ -351,8 +359,27 @@ final class LeonardoService {
                     "public": false,
                     "parameters": params,
                 ]
-            case .kling30, .seedance20Fast:
-                // Plain top-level envelope. width/height set the preset.
+            case .kling30:
+                // Kling 3.0 needs `mode` for non-1080p output. Without
+                // it the API defaults to RESOLUTION_1080 regardless of
+                // the width/height we send. Including it always is
+                // safe and explicit.
+                var params: [String: Any] = [
+                    "prompt": prompt,
+                    "duration": duration,
+                    "width": resolution.width,
+                    "height": resolution.height,
+                    "mode": resolution.rawValue,
+                ]
+                if !guidances.isEmpty { params["guidances"] = guidances }
+                body = [
+                    "model": model.rawValue,
+                    "public": false,
+                    "parameters": params,
+                ]
+            case .seedance20Fast:
+                // Plain top-level envelope. Seedance is 1080p only,
+                // so no `mode` field needed.
                 var params: [String: Any] = [
                     "prompt": prompt,
                     "duration": duration,
@@ -365,9 +392,9 @@ final class LeonardoService {
                     "public": false,
                     "parameters": params,
                 ]
-            case .veo3Fast:
+            case .veo31Fast:
                 // Unreachable — handled by the v1 branch above.
-                fatalError("veo3Fast should route through usesV1Endpoint")
+                fatalError("veo31Fast should route through usesV1Endpoint")
             }
         }
 

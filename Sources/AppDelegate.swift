@@ -56,6 +56,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.prefsWindow.show()
             }
         }
+
+        // Honour the saved dock-icon preference on launch. Without this
+        // call the activation policy starts at whatever Info.plist
+        // declared and only updates when the user flips the toggle —
+        // can drift across sessions.
+        applyDockIconVisibility()
     }
 
     /// Re-apply the dock-icon visibility from the current preference.
@@ -258,12 +264,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Called when the user clicks the dock icon (or relaunches the app
-    /// while it's already running). If there's no visible window, open
-    /// Settings — that's the only thing they could reasonably want.
+    /// while it's already running). Always open Settings — the
+    /// `hasVisibleWindows` flag would normally let AppKit bring an
+    /// existing window forward, but our wallpaper windows technically
+    /// count as visible (they're real NSWindows even though they sit
+    /// at the wallpaper level behind everything). So `flag` is true,
+    /// AppKit's default brings invisible wallpaper windows "forward",
+    /// and the user sees nothing happen. Ignore the flag, just show
+    /// the Settings window unconditionally.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            prefsWindow?.show()
-        }
+        prefsWindow?.show()
         return true
     }
 }
