@@ -1,15 +1,20 @@
 import Cocoa
 
 enum PrefsSection: Int, CaseIterable {
-    case general, display, playback, library, generate, about
+    // Order matters — this is the order shown in the sidebar.
+    // Content tabs (Featured / Library / Generate) come first because
+    // changing the wallpaper is what users actually open Settings for.
+    // Config tabs (Display / Playback / General) follow. About is last.
+    case featured, library, generate, display, playback, general, about
 
     var title: String {
         switch self {
-        case .general:  return "General"
-        case .display:  return "Display"
-        case .playback: return "Playback"
+        case .featured: return "Featured"
         case .library:  return "Library"
         case .generate: return "Generate"
+        case .display:  return "Display"
+        case .playback: return "Playback"
+        case .general:  return "General"
         case .about:    return "About"
         }
     }
@@ -20,6 +25,7 @@ enum PrefsSection: Int, CaseIterable {
         case .display:  return "display"
         case .playback: return "playback"
         case .library:  return "library"
+        case .featured: return "featured"
         case .generate: return "generate"
         case .about:    return "about"
         }
@@ -31,6 +37,7 @@ enum PrefsSection: Int, CaseIterable {
         case .display:  return "display"
         case .playback: return "play.rectangle"
         case .library:  return "square.grid.2x2"
+        case .featured: return "star"
         case .generate: return "sparkles"
         case .about:    return "info.circle"
         }

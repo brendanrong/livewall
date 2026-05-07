@@ -22,25 +22,22 @@ if [ -n "$(git status --porcelain Sources/Generated 2>/dev/null || true)" ]; the
     exit 1
 fi
 
-echo "→ Commit 1/2: growable prompt, surface failure reasons, drop LTX 4K"
-git add Sources/LeonardoService.swift Sources/Preferences.swift \
-        Sources/PreferencesWindow.swift Sources/ImageUploadService.swift \
-        Sources/PromptInputView.swift dev.sh release.sh
-git commit -m "fix: growable prompt, surface failure reasons, drop LTX 4K
+echo "→ Commit 1/2: Featured tab + sidebar reorder"
+git add Sources/FeaturedService.swift Sources/PreferencesWindow.swift \
+        Sources/SidebarItemButton.swift \
+        prep_featured.sh rename_featured.sh release.sh
+git commit -m "feat: Featured tab + sidebar reorder
 
-Prompt box swapped to NSTextView in NSScrollView so it grows as you
-type, capped at five lines then scrolls past that. Stock config —
-no acceptableDragTypes, acceptsFirstResponder, or custom NSClipView
-overrides. Placeholder is drawn inside the textView so there's no
-overlay sibling that could hijack clicks.
+New Featured tab between Library and Generate. Loads a curated catalog
+from docs/featured.json on GitHub Pages. Each card has a thumbnail,
+title, category, and a Use button that downloads the video to
+~/Movies/LiveWall/Library/Featured/ and sets it as wallpaper. Solves
+the cold-start onboarding problem — first-launch user has things to
+pick from instantly.
 
-Failed generations now extract failureReason / errorMessage / error
-fields from the response and show them inline, instead of showing a
-generic 'failed' message. Generic message no longer leaks the API
-provider name.
-
-LTX 2.3 Pro 4K pulled. The wrapped envelope path was inconsistent
-in practice; LTX is 1080p and 1440p only.
+Sidebar reordered so content tabs (Featured / Library / Generate)
+come first, config tabs (Display / Playback / General) come after,
+About at the bottom. First-launch default lands on Featured.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
@@ -76,11 +73,16 @@ echo ""
 echo "→ Creating GitHub release…"
 NOTES_FILE=$(mktemp -t livewall-release-notes)
 cat > "$NOTES_FILE" <<'EOF'
-Polish pass on the Generate pane. Prompt grows properly, failures are honest.
+The Featured tab is here. Browse curated wallpapers, click Use, done.
+
+## What's new
+
+- New Featured tab. Browse curated wallpapers, click Use to download and set them. No prompt, no generation, no waiting for a model to render.
+- Sidebar reordered so the content tabs (Featured / Library / Generate) come first. First-launch lands on Featured.
 
 ## What's fixed
 
-- Prompt box now actually grows as you type, capped at 5 lines then scrolls. The previous build had this regress.
+- Prompt box now actually grows as you type, capped at 5 lines then scrolls.
 - Failed generations now show the specific reason from the server when one's available, instead of a generic message.
 
 ## Changed

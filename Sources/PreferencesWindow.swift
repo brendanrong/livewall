@@ -53,6 +53,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var libraryStack: NSStackView!
     private var libraryStatusLabel: NSTextField!
     private var libraryRefreshButton: NSButton!
+
+    // Featured tab
+    private var featuredStack: NSStackView!
+    private var featuredStatusLabel: NSTextField!
+    private var featuredRefreshButton: NSButton!
+    /// Map of item.id -> button so we can flip Use → Downloading → Use.
+    private var featuredUseButtons: [String: NSButton] = [:]
     private var libraryItemActionButtons: [String: NSButton] = [:]
     private var libraryItemStatusLabels: [String: NSTextField] = [:]
 
@@ -90,7 +97,9 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         buildUI()
         // Restore last visible section if we have one.
         let saved = Preferences.shared.lastSettingsSection
-        let initial = PrefsSection.allCases.first { $0.identifier == saved } ?? .general
+        // First-launch default lands on Featured — gives a new user
+        // something to click instantly instead of an empty config form.
+        let initial = PrefsSection.allCases.first { $0.identifier == saved } ?? .featured
         showSection(initial)
 
         NotificationCenter.default.addObserver(
@@ -191,6 +200,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             title: "Library",
             subtitle: "Wallpapers in your ~/Movies/LiveWall/Library/ folder",
             content: buildLibraryPane()
+        )
+        sectionViews[.featured] = buildPaneShell(
+            title: "Featured",
+            subtitle: "Curated wallpapers, ready to use",
+            content: buildFeaturedPane()
         )
         sectionViews[.generate] = buildPaneShell(
             title: "Generate",
@@ -921,6 +935,273 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         let items = LibraryService.shared.items
         populateLibraryRows(items)
         updateLibraryStatus(items)
+    }
+
+    // MARK: Featured
+
+    /// Curated catalog tab. Mirrors the Library pane's structure but
+    /// each card has a thumbnail and the "Use" button kicks off a
+    /// download (cached for next time) before setting the wallpaper.
+    private func buildFeaturedPane() -> NSView {
+        featuredStatusLabel = NSTextField(labelWithString: "Loading…")
+        featuredStatusLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        featuredStatusLabel.textColor = .secondaryLabelColor
+        featuredStatusLabel.lineBreakMode = .byTruncatingTail
+        featuredStatusLabel.maximumNumberOfLines = 1
+        featuredStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        featuredRefreshButton = NSButton(title: "Refresh",
+                                         target: self,
+                                         action: #selector(featuredRefreshClicked))
+        featuredRefreshButton.bezelStyle = .rounded
+        featuredRefreshButton.controlSize = .small
+
+        let topRowSpacer = NSView()
+        topRowSpacer.translatesAutoresizingMaskIntoConstraints = false
+        topRowSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let topRow = NSStackView(views: [featuredStatusLabel, topRowSpacer, featuredRefreshButton])
+        topRow.orientation = .horizontal
+        topRow.alignment = .centerY
+        topRow.spacing = 8
+        topRow.distribution = .fill
+
+        featuredStack = NSStackView()
+        featuredStack.orientation = .vertical
+        featuredStack.alignment = .leading
+        featuredStack.spacing = 10
+        featuredStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let docView = FlippedView()
+        docView.translatesAutoresizingMaskIntoConstraints = false
+        docView.addSubview(featuredStack)
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = docView
+
+        NSLayoutConstraint.activate([
+            docView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            docView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            docView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            docView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            featuredStack.leadingAnchor.constraint(equalTo: docView.leadingAnchor),
+            featuredStack.trailingAnchor.constraint(equalTo: docView.trailingAnchor),
+            featuredStack.topAnchor.constraint(equalTo: docView.topAnchor),
+            featuredStack.bottomAnchor.constraint(equalTo: docView.bottomAnchor),
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 360),
+        ])
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(featuredCatalogDidLoad),
+            name: FeaturedService.catalogLoadedNotification, object: nil)
+
+        refreshFeatured()
+
+        let pane = NSStackView(views: [topRow, scrollView])
+        pane.orientation = .vertical
+        pane.alignment = .leading
+        pane.spacing = 14
+        pane.distribution = .fill
+        pane.setHuggingPriority(.defaultLow, for: .horizontal)
+        fillWidth(pane)
+        return pane
+    }
+
+    /// One Featured row: thumbnail + title + category badge + Use button.
+    private func buildFeaturedRow(_ item: FeaturedItem) -> NSView {
+        // Thumbnail. Async-loaded; placeholder gradient until the image
+        // arrives. Wrapped in a view so we can mask to rounded corners.
+        let thumbWrap = NSView()
+        thumbWrap.wantsLayer = true
+        thumbWrap.layer?.cornerRadius = 6
+        thumbWrap.layer?.masksToBounds = true
+        thumbWrap.layer?.backgroundColor = NSColor.unemphasizedSelectedContentBackgroundColor.cgColor
+        thumbWrap.translatesAutoresizingMaskIntoConstraints = false
+
+        let thumbView = NSImageView()
+        thumbView.imageScaling = .scaleProportionallyUpOrDown
+        thumbView.translatesAutoresizingMaskIntoConstraints = false
+        thumbWrap.addSubview(thumbView)
+
+        // Async thumbnail fetch. URLSession cache handles repeat loads.
+        URLSession.shared.dataTask(with: item.thumbnailURL) { [weak thumbView] data, _, _ in
+            guard let data = data, let image = NSImage(data: data) else { return }
+            DispatchQueue.main.async {
+                thumbView?.image = image
+            }
+        }.resume()
+
+        // Title + category badge.
+        let title = NSTextField(labelWithString: item.title)
+        title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        title.maximumNumberOfLines = 1
+        title.lineBreakMode = .byTruncatingMiddle
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let badge = makeCategoryBadge(item.category)
+
+        let titleRow = NSStackView(views: [title, badge])
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .centerY
+        titleRow.spacing = 8
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let useButton = NSButton(title: useButtonTitle(for: item),
+                                 target: self,
+                                 action: #selector(featuredUseClicked(_:)))
+        useButton.bezelStyle = .rounded
+        useButton.controlSize = .small
+        if #available(macOS 14.0, *) {
+            useButton.bezelColor = .controlAccentColor
+        }
+        useButton.identifier = NSUserInterfaceItemIdentifier(rawValue: item.id)
+        featuredUseButtons[item.id] = useButton
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let textColumn = NSStackView(views: [titleRow])
+        textColumn.orientation = .vertical
+        textColumn.alignment = .leading
+        textColumn.spacing = 4
+        textColumn.translatesAutoresizingMaskIntoConstraints = false
+
+        let row = NSStackView(views: [thumbWrap, textColumn, spacer, useButton])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 14
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 10
+        card.layer?.backgroundColor = NSColor.unemphasizedSelectedContentBackgroundColor.cgColor
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(row)
+
+        NSLayoutConstraint.activate([
+            // Thumbnail is 16:10 at a fixed size for consistency.
+            thumbWrap.widthAnchor.constraint(equalToConstant: 96),
+            thumbWrap.heightAnchor.constraint(equalToConstant: 60),
+            thumbView.topAnchor.constraint(equalTo: thumbWrap.topAnchor),
+            thumbView.bottomAnchor.constraint(equalTo: thumbWrap.bottomAnchor),
+            thumbView.leadingAnchor.constraint(equalTo: thumbWrap.leadingAnchor),
+            thumbView.trailingAnchor.constraint(equalTo: thumbWrap.trailingAnchor),
+
+            // Pin the row inset from the card edges via explicit
+            // constraints rather than NSStackView.edgeInsets — the
+            // latter doesn't reliably pad the leading edge here.
+            row.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            row.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+            row.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
+        ])
+        return card
+    }
+
+    private func useButtonTitle(for item: FeaturedItem) -> String {
+        if FeaturedService.shared.isDownloading(item) { return "Downloading…" }
+        return FeaturedService.shared.isDownloaded(item) ? "Use" : "Get"
+    }
+
+    private func refreshFeatured() {
+        featuredStatusLabel?.stringValue = "Loading featured catalog…"
+        featuredRefreshButton?.isEnabled = false
+        FeaturedService.shared.loadCatalog { [weak self] result in
+            guard let self = self else { return }
+            self.featuredRefreshButton?.isEnabled = true
+            switch result {
+            case .success(let items):
+                self.populateFeaturedRows(items)
+                self.updateFeaturedStatus(items)
+            case .failure(let error):
+                self.featuredStatusLabel?.stringValue =
+                    "Couldn't load: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func populateFeaturedRows(_ items: [FeaturedItem]) {
+        featuredStack?.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        featuredUseButtons.removeAll()
+
+        if items.isEmpty {
+            let empty = NSTextField(wrappingLabelWithString:
+                "No featured wallpapers right now. Check back soon, " +
+                "or generate your own from the Generate tab.")
+            empty.font = NSFont.systemFont(ofSize: 12)
+            empty.textColor = .tertiaryLabelColor
+            empty.alignment = .center
+            empty.preferredMaxLayoutWidth = 380
+            featuredStack.addArrangedSubview(empty)
+            empty.widthAnchor.constraint(equalTo: featuredStack.widthAnchor).isActive = true
+            return
+        }
+
+        for item in items {
+            let row = buildFeaturedRow(item)
+            featuredStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: featuredStack.widthAnchor).isActive = true
+        }
+    }
+
+    private func updateFeaturedStatus(_ items: [FeaturedItem]) {
+        if items.isEmpty {
+            featuredStatusLabel?.stringValue = "Nothing featured yet."
+        } else {
+            featuredStatusLabel?.stringValue =
+                "\(items.count) curated wallpaper\(items.count == 1 ? "" : "s")"
+        }
+    }
+
+    @objc private func featuredRefreshClicked() {
+        refreshFeatured()
+    }
+
+    @objc private func featuredCatalogDidLoad() {
+        let items = FeaturedService.shared.items
+        populateFeaturedRows(items)
+        updateFeaturedStatus(items)
+    }
+
+    @objc private func featuredUseClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let item = FeaturedService.shared.items.first(where: { $0.id == id }) else { return }
+
+        // Already downloaded? Just set as wallpaper.
+        if FeaturedService.shared.isDownloaded(item) {
+            controller?.setVideoFile(FeaturedService.shared.localURL(for: item))
+            loadValues()
+            return
+        }
+
+        // Otherwise download then set.
+        sender.title = "Downloading…"
+        sender.isEnabled = false
+        FeaturedService.shared.download(item) { [weak self, weak sender] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let localURL):
+                sender?.isEnabled = true
+                sender?.title = "Use"
+                self.controller?.setVideoFile(localURL)
+                self.loadValues()
+            case .failure(let error):
+                sender?.isEnabled = true
+                sender?.title = "Get"
+                self.featuredStatusLabel?.stringValue =
+                    "Download failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     // MARK: Generate
