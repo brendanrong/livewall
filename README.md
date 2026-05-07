@@ -85,10 +85,10 @@ LiveWall/
 
 ## Privacy
 
-No tracking. No telemetry. No analytics. The only network calls LiveWall makes are:
+I don't run any tracking, telemetry, or analytics myself. The only network calls LiveWall makes are:
 
 - The WebKit web wallpaper feature, which only loads URLs you give it.
-- The Generate tab, which calls Leonardo.AI's REST API to produce video clips from your prompts. Only the prompt and your generation parameters are sent — no system info, no identifiers.
+- The Generate tab, which calls a hosted video-generation API. The request includes your prompt, any image you attach, and the chosen model / duration / resolution. As with any HTTP request, the provider's server logs your IP address. Generations bill to my own API account — I can see usage from my dashboard but don't track or share who's using the app.
 - Check for Updates in the About pane, which hits `api.github.com` to ask whether a newer LiveWall release exists.
 
 Your file picks and preferences live in `~/Library/Preferences/com.brendan.livewall.plist`. Generated and locally-dropped wallpapers live in `~/Movies/LiveWall/Library/`.
