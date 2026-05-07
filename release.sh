@@ -22,9 +22,9 @@ if [ -n "$(git status --porcelain Sources/Generated 2>/dev/null || true)" ]; the
     exit 1
 fi
 
-echo "→ Commit 1/2: Featured tab + sidebar reorder"
+echo "→ Commit: Featured tab + sidebar reorder + landing page"
 git add Sources/FeaturedService.swift Sources/PreferencesWindow.swift \
-        Sources/SidebarItemButton.swift \
+        Sources/SidebarItemButton.swift docs/index.html \
         prep_featured.sh rename_featured.sh release.sh
 git commit -m "feat: Featured tab + sidebar reorder
 
@@ -39,12 +39,8 @@ Sidebar reordered so content tabs (Featured / Library / Generate)
 come first, config tabs (Display / Playback / General) come after,
 About at the bottom. First-launch default lands on Featured.
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-
-echo ""
-echo "→ Commit 2/2: bump to v${VERSION} and update landing page"
-git add Sources/Info.plist docs/index.html
-git commit -m "chore: bump to v${VERSION} and update landing page
+Landing page v2.3 release block updated to include the Featured tab
+and sidebar reorder.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
