@@ -93,16 +93,27 @@
     flex-shrink: 0;
   }
   .trust .sep { color: var(--border); }
-  /* Hero visual: uses ./hero.jpg if present, falls back to gradient if missing. */
+  /* Hero visual: an autoplaying muted MP4 loop. Falls back to
+     ./hero.jpg, then a gradient, if the video fails to load. */
   .hero-visual {
+    position: relative;
     aspect-ratio: 16 / 10;
     border-radius: 16px;
+    overflow: hidden;
     background-image: url('hero.jpg'), linear-gradient(135deg, #FF6B35 0%, #E8336F 100%);
     background-size: cover, cover;
     background-position: center, center;
     background-repeat: no-repeat;
     margin-bottom: 56px;
     border: 0.5px solid var(--border);
+  }
+  .hero-visual video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
   /* Blurb */
   .blurb {
@@ -228,7 +239,9 @@
     </p>
   </section>
 
-  <section class="hero-visual" aria-label="LiveWall preview"></section>
+  <section class="hero-visual" aria-label="LiveWall preview">
+    <video src="demo.mp4" autoplay muted loop playsinline preload="auto"></video>
+  </section>
 
   <section class="blurb">
     <p>Built on late nights to keep my OLED happy. If your desktop could use a bit more life, give it a spin.</p>
@@ -245,7 +258,7 @@
       <ul class="release-changes">
         <li>Veo 3 Fast added as a new model (1080p).</li>
         <li>Model, duration, and resolution dropdowns moved above the prompt box for a clearer flow.</li>
-        <li>LTX 2.3 Pro now shows 1080p and 1440p only. The 4K option was pulled until it works reliably.</li>
+        <li>Prompt box now grows as you type, capped at 5 lines then scrolls.</li>
       </ul>
     </div>
 
