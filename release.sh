@@ -22,28 +22,24 @@ if [ -n "$(git status --porcelain Sources/Generated 2>/dev/null || true)" ]; the
     exit 1
 fi
 
-echo "→ Commit: Kling 4K + Veo 3.1 Fast + dock-click opens Settings"
-git add Sources/LeonardoService.swift Sources/AppDelegate.swift \
-        Sources/Info.plist docs/index.html release.sh
-git commit -m "feat: Kling 3.0 4K + Veo 3.1 Fast + dock-click opens Settings
+echo "→ Commit: LTX 4K + Veo 3.1 Fast v2 endpoint + audio on"
+git add Sources/LeonardoService.swift Sources/Info.plist \
+        docs/index.html release.sh
+git commit -m "feat: LTX 2.3 Pro 4K + Veo 3.1 Fast v2 endpoint
 
-Kling 3.0 now offers 4K output. Adds .uhd4K to Kling's resolution
-list and includes the \`mode\` parameter explicitly in the request
-body so the API honors the requested resolution (without it, the
-endpoint silently defaults to RESOLUTION_1080).
+LTX 2.3 Pro now offers 4K. The v2 endpoint accepts real 3840x2160
+dimensions with mode=RESOLUTION_2160 directly, no wrapped envelope
+needed (that earlier path was inconsistent and was pulled).
 
-Veo 3.0 Fast upgraded to Veo 3.1 Fast (model id VEO3_1FAST). Still
-1080p only — Veo's API explicitly rejects 4K dimensions. The v1
-request body now includes width and height alongside resolution
-to match the documented schema.
+Veo 3.1 Fast switched from the v1 endpoint to the v2 endpoint using
+the hyphenated model id \`veo-3.1-fast-generate-001\`. The v2 path
+supports 4K; the older v1 path with VEO3_1FAST was 1080p-capped.
+Body shape now matches LTX. The v1 endpoint branch and
+usesV1Endpoint property are gone since nothing routes through them.
 
-Clicking the dock icon now opens Settings. Previously dock clicks
-did nothing because the wallpaper windows count as visible NSWindows
-in AppKit's bookkeeping, so the default reopen handler thought there
-was already a visible window to bring forward. Now the reopen
-handler always shows the Settings window. Also calls
-applyDockIconVisibility() at launch so the saved preference is
-honoured across sessions.
+Generated videos now include audio (\`audio: true\` on LTX and Veo).
+The wallpaper player still defaults to muted, so playback is silent
+unless the user unmutes from the Playback pane.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
@@ -72,16 +68,13 @@ echo ""
 echo "→ Creating GitHub release…"
 NOTES_FILE=$(mktemp -t livewall-release-notes)
 cat > "$NOTES_FILE" <<'EOF'
-Model upgrades and a friendlier dock icon.
+4K across the board. LTX 2.3 Pro and Veo 3.1 Fast both go full 4K now.
 
 ## What's new
 
-- Kling 3.0 now offers 4K output alongside 1080p.
-- Veo 3 Fast upgraded to Veo 3.1 Fast. Still 1080p (Veo's API doesn't accept 4K).
-
-## What's fixed
-
-- Clicking the dock icon now opens Settings, instead of doing nothing.
+- LTX 2.3 Pro now offers 4K output alongside 1080p and 1440p.
+- Veo 3.1 Fast now supports 4K (switched to a different API path that accepts native 3840x2160 dimensions).
+- Generated videos now include audio. Wallpaper playback still defaults to muted — flip the mute toggle in Playback to hear it.
 
 ## Install
 

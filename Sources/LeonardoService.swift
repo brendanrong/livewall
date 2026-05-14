@@ -6,15 +6,15 @@ import Foundation
 /// Each carries its own duration list and supported resolutions because
 /// the underlying Leonardo models all have different constraints.
 enum LeonardoModel: String, CaseIterable {
-    // Models on the v2 unified generations endpoint.
+    // All models go through the v2 unified generations endpoint.
     case kling30        = "kling-3.0"
     case seedance20Fast = "seedance-2.0-fast"
     case ltxv23Pro      = "ltxv-2.3-pro"
-    // Veo runs on the older v1 generations-image-to-video / -text-to-video
-    // endpoints, with a different body shape (imageId/imageType +
-    // resolution enum, not guidances). Model id is VEO3_1FAST per the
-    // Veo 3.1 docs (the older Veo 3.0 was VEO3FAST).
-    case veo31Fast       = "VEO3_1FAST"
+    // Veo 3.1 Fast has two model ids depending on endpoint: VEO3_1FAST
+    // for the older v1 image-to-video path (1080p only), and the
+    // hyphenated `veo-3.1-fast-generate-001` for v2 (supports 4K).
+    // We use v2 for the higher ceiling.
+    case veo31Fast      = "veo-3.1-fast-generate-001"
 
     var displayName: String {
         switch self {
@@ -22,15 +22,6 @@ enum LeonardoModel: String, CaseIterable {
         case .seedance20Fast: return "Seedance 2.0 Fast"
         case .ltxv23Pro:      return "LTX 2.3 Pro"
         case .veo31Fast:       return "Veo 3.1 Fast"
-        }
-    }
-
-    /// True if this model uses the v1 generations-image-to-video /
-    /// generations-text-to-video endpoint family. False means v2.
-    var usesV1Endpoint: Bool {
-        switch self {
-        case .veo31Fast: return true
-        default:        return false
         }
     }
 
@@ -54,16 +45,15 @@ enum LeonardoModel: String, CaseIterable {
     }
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
-    /// Kling 3.0 supports 1080p and 4K (skipping 720p since it's lower
-    /// than typical desktops). LTX 2.3 Pro tops out at 1440p. Seedance
-    /// 2.0 Fast and Veo 3.1 Fast are 1080p only — Veo's API explicitly
-    /// rejects 4K dimensions with "Invalid width and height combination".
+    /// Kling 3.0, LTX 2.3 Pro, and Veo 3.1 Fast all support 4K via the
+    /// v2 endpoint with real 3840x2160 dimensions + mode=RESOLUTION_2160.
+    /// Seedance 2.0 Fast is 1080p only.
     var resolutions: [LeonardoResolution] {
         switch self {
         case .kling30:        return [.fullHD, .uhd4K]
         case .seedance20Fast: return [.fullHD]
-        case .ltxv23Pro:      return [.fullHD, .qhd1440]
-        case .veo31Fast:      return [.fullHD]
+        case .ltxv23Pro:      return [.fullHD, .qhd1440, .uhd4K]
+        case .veo31Fast:      return [.fullHD, .uhd4K]
         }
     }
 
@@ -293,109 +283,74 @@ final class LeonardoService {
                                  endFrame: LeonardoImageRef?,
                                  completion: @escaping (Result<String, Error>) -> Void) {
 
-        // Per-model: pick the endpoint, build the body. Veo runs on the
-        // older v1 generations-image-to-video / generations-text-to-video
-        // endpoints with their own body shape. Everything else uses the
-        // unified v2 endpoint.
-        let url: URL
+        // All models use the v2 unified generations endpoint.
+        let url = v2BaseURL.appendingPathComponent("generations")
         let body: [String: Any]
 
-        if model.usesV1Endpoint {
-            // v1 image-to-video / text-to-video. Picks the right path
-            // based on whether we have a start frame. Body uses
-            // imageId/imageType + resolution enum + explicit width/
-            // height. End frame is only supported on kling2_1 per
-            // docs, so we drop it for Veo. Sending width/height
-            // alongside resolution gives the API both signals — useful
-            // for the 4K hopeful try where docs only list 1080p but
-            // the pixel dimensions might convince the backend.
-            let path = (startFrame != nil) ? "generations-image-to-video" : "generations-text-to-video"
-            url = v1BaseURL.appendingPathComponent(path)
+        var guidances: [String: Any] = [:]
+        if let sf = startFrame {
+            guidances["start_frame"] = [["image": ["id": sf.id, "type": sf.type]]]
+        }
+        if let ef = endFrame {
+            guidances["end_frame"] = [["image": ["id": ef.id, "type": ef.type]]]
+        }
 
+        switch model {
+        case .ltxv23Pro, .veo31Fast:
+            // LTX 2.3 Pro and Veo 3.1 Fast (v2 path) share the same
+            // body shape: real dimensions + mode + quantity +
+            // prompt_enhance + audio. prompt_enhance must be OFF
+            // when a start_frame is set or the API returns
+            // VALIDATION_ERROR.
             var params: [String: Any] = [
                 "prompt": prompt,
-                "model": model.rawValue,
                 "duration": duration,
-                "resolution": resolution.rawValue,
                 "width": resolution.width,
                 "height": resolution.height,
-                "isPublic": false,
+                "mode": resolution.rawValue,
+                "audio": true,
+                "quantity": 1,
+                "prompt_enhance": (startFrame == nil) ? "AUTO" : "OFF",
             ]
-            if let sf = startFrame {
-                params["imageId"] = sf.id
-                params["imageType"] = sf.type
-            }
-            body = params
-        } else {
-            // v2 unified endpoint.
-            url = v2BaseURL.appendingPathComponent("generations")
-
-            var guidances: [String: Any] = [:]
-            if let sf = startFrame {
-                guidances["start_frame"] = [["image": ["id": sf.id, "type": sf.type]]]
-            }
-            if let ef = endFrame {
-                guidances["end_frame"] = [["image": ["id": ef.id, "type": ef.type]]]
-            }
-
-            switch model {
-            case .ltxv23Pro:
-                // 1080p / 1440p: top-level envelope, real dimensions,
-                // full LTX param set. prompt_enhance must be OFF when a
-                // start_frame is set or LTX returns VALIDATION_ERROR.
-                var params: [String: Any] = [
-                    "prompt": prompt,
-                    "duration": duration,
-                    "width": resolution.width,
-                    "height": resolution.height,
-                    "mode": resolution.rawValue,
-                    "audio": false,
-                    "quantity": 1,
-                    "prompt_enhance": (startFrame == nil) ? "AUTO" : "OFF",
-                ]
-                if !guidances.isEmpty { params["guidances"] = guidances }
-                body = [
-                    "model": model.rawValue,
-                    "public": false,
-                    "parameters": params,
-                ]
-            case .kling30:
-                // Kling 3.0 needs `mode` for non-1080p output. Without
-                // it the API defaults to RESOLUTION_1080 regardless of
-                // the width/height we send. Including it always is
-                // safe and explicit.
-                var params: [String: Any] = [
-                    "prompt": prompt,
-                    "duration": duration,
-                    "width": resolution.width,
-                    "height": resolution.height,
-                    "mode": resolution.rawValue,
-                ]
-                if !guidances.isEmpty { params["guidances"] = guidances }
-                body = [
-                    "model": model.rawValue,
-                    "public": false,
-                    "parameters": params,
-                ]
-            case .seedance20Fast:
-                // Plain top-level envelope. Seedance is 1080p only,
-                // so no `mode` field needed.
-                var params: [String: Any] = [
-                    "prompt": prompt,
-                    "duration": duration,
-                    "width": resolution.width,
-                    "height": resolution.height,
-                ]
-                if !guidances.isEmpty { params["guidances"] = guidances }
-                body = [
-                    "model": model.rawValue,
-                    "public": false,
-                    "parameters": params,
-                ]
-            case .veo31Fast:
-                // Unreachable — handled by the v1 branch above.
-                fatalError("veo31Fast should route through usesV1Endpoint")
-            }
+            if !guidances.isEmpty { params["guidances"] = guidances }
+            body = [
+                "model": model.rawValue,
+                "public": false,
+                "parameters": params,
+            ]
+        case .kling30:
+            // Kling 3.0 needs `mode` for non-1080p output. Without
+            // it the API defaults to RESOLUTION_1080 regardless of
+            // the width/height we send. Including it always is
+            // safe and explicit.
+            var params: [String: Any] = [
+                "prompt": prompt,
+                "duration": duration,
+                "width": resolution.width,
+                "height": resolution.height,
+                "mode": resolution.rawValue,
+            ]
+            if !guidances.isEmpty { params["guidances"] = guidances }
+            body = [
+                "model": model.rawValue,
+                "public": false,
+                "parameters": params,
+            ]
+        case .seedance20Fast:
+            // Plain top-level envelope. Seedance is 1080p only,
+            // so no `mode` field needed.
+            var params: [String: Any] = [
+                "prompt": prompt,
+                "duration": duration,
+                "width": resolution.width,
+                "height": resolution.height,
+            ]
+            if !guidances.isEmpty { params["guidances"] = guidances }
+            body = [
+                "model": model.rawValue,
+                "public": false,
+                "parameters": params,
+            ]
         }
 
         var req = URLRequest(url: url)
