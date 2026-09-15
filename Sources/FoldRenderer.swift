@@ -4,7 +4,7 @@ import Metal
 import MetalKit
 import QuartzCore
 
-/// Layout mirrors `FoldUniforms` in the shader: two float2, then eight floats. 48 bytes.
+/// Layout mirrors `FoldUniforms` in the shader: two float2, then ten floats. 56 bytes.
 struct FoldUniforms {
     var imageSize = SIMD2<Float>(1, 1)
     var cover = SIMD2<Float>(1, 1)
@@ -16,6 +16,8 @@ struct FoldUniforms {
     var motionBoost: Float = 0
     var sideVoid: Float = 0
     var finalClose: Float = 1
+    var bend: Float = 0        // radians, the real angle the glass has closed through (capped)
+    var eye: Float = 2.5       // viewer distance in screen heights
 }
 
 private struct PyramidParams {
@@ -35,7 +37,10 @@ private struct PyramidParams {
 /// here, once per displayed frame at the panel's native rate, so sensor jitter never reaches the
 /// geometry directly.
 final class FoldRenderer: MTKView, MTKViewDelegate {
+    /// Linear turn, 0 at the start angle and 1 at the end angle. Eased here; shaped for the shader in draw().
     var targetTurn: Float = 0
+    /// Degrees between the start and end angles, so displayed turn converts back to real degrees of bend.
+    var rangeDegrees: Float = 107
     var followSpeed: Double = 16
     var blurStrength: Float = 0.5
     var motionBoost: Float = 0
@@ -47,8 +52,18 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
     private(set) var displayedTurn: Float = 0
     var hasFrame: Bool { frozen != nil }
 
-    /// 0 keeps the frame at full width with no side void. Deliberately not a setting.
-    static let sideVoid: Float = 0
+    /// Front-load the frost and void: 20% of the travel gives 36%. 1 = linear. Geometry is not
+    /// affected; the bend always tracks the real lid angle.
+    static let frontLoad: Float = 2
+    /// The bend follows the lid degree for degree up to here. Past about 80 the plane is edge-on
+    /// to the viewer and the projection degenerates, so the close-to-black covers the rest.
+    static let maxBendDegrees: Float = 75
+    /// Viewer distance in screen heights. A 16-inch panel is about 21 cm tall; 2.5 is arm's length.
+    static let eyeDistance: Float = 2.5
+    /// Horizontal part of the projection. 1 = physical: the picture narrows toward the top as the
+    /// glass comes closer to the eye, which is what makes it read as staying put in space. 0 keeps
+    /// the frame at full width (v2 first cut; the fold then reads as rotating with the lid).
+    static let sideVoid: Float = 1
     static let reflection: Float = 1
     private static let mipLevels = 6
 
@@ -220,7 +235,9 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
         u.imageSize = frameSize
         u.cover = SIMD2<Float>(min(1, aspect / imageAspect), min(1, imageAspect / aspect))
         u.aspect = aspect
-        u.turn = displayedTurn
+        u.turn = Self.shaped(displayedTurn)
+        u.bend = min(displayedTurn * rangeDegrees, Self.maxBendDegrees) * .pi / 180
+        u.eye = Self.eyeDistance
         u.blurStrength = blurStrength
         u.reflection = Self.reflection
         u.sampleCount = adaptiveTaps(displayedTurn)
@@ -236,6 +253,11 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
         enc.endEncoding()
         cb.present(drawable)
         cb.commit()
+    }
+
+    private static func shaped(_ t: Float) -> Float {
+        let c = min(max(t, 0), 1)
+        return 1 - pow(1 - c, frontLoad)
     }
 
     private static func baseTaps(_ turn: Float) -> Float { turn < 0.2 ? 12 : (turn < 0.6 ? 20 : 32) }
@@ -292,7 +314,6 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
     #include <metal_stdlib>
     using namespace metal;
 
-    constant float kMaxBend = 0.84106867;               // acos(1/1.5), 48.19 degrees
     constant float3 kVoid = float3(0.003, 0.004, 0.005);
 
     struct FoldUniforms {
@@ -306,6 +327,8 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
         float motionBoost;
         float sideVoid;
         float finalClose;
+        float bend;
+        float eye;
     };
 
     struct PyramidParams {
@@ -391,14 +414,17 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
 
         // Inverse mapping. The frozen picture stays in the plane of the open lid; the glass rotates
         // about the bottom edge toward the viewer. For each screen pixel, find the picture point behind it.
+        // Units are screen heights. The glass row at fromHinge sits fromHinge*sin(bend) closer to the
+        // eye than the picture plane; the ray from the eye through it meets the picture plane at
+        // fromHinge*cos(bend) scaled by eye/(eye - depth). Hinge row fixed; top rows compress and
+        // narrow. Real geometry, no fudge: the bend is the degrees the lid has actually closed.
         float fromHinge = clamp(1.0 - in.uv.y, 0.0, 1.0);
-        float bend = turn * kMaxBend;
+        float bend = clamp(u.bend, 0.0, 1.5);
         float c = cos(bend);
         float sn = sin(bend);
-        float invAspect = 1.0 / max(0.1, u.aspect);
-        float eye = 3.2 * max(invAspect, 1.0);
-        float depth = fromHinge * 0.80 * invAspect * sn;
-        float persp = eye / max(0.01, eye - depth);
+        float eye = max(1.0, u.eye);
+        float depth = fromHinge * sn;
+        float persp = eye / max(0.05, eye - depth);
         float2 plane;
         plane.y = 1.0 - fromHinge * c * persp;
         float spread = 1.0 + (persp - 1.0) * clamp(u.sideVoid, 0.0, 2.0);   // 0: full width, no side void

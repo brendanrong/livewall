@@ -17,7 +17,7 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Blur strength, 0.2 to 1.0. Geometry never scales with it; it follows the lid.
     var intensity: Double = 0.5 { didSet { renderer.blurStrength = Float(min(max(intensity, 0.2), 1)) } }
     /// Lid angle where the fold starts, degrees.
-    var clearAngle: Double = 110
+    var clearAngle: Double = 110 { didSet { renderer.rangeDegrees = Float(clearAngle - Self.endAngle) } }
     /// Close to black over the last tenth of the turn.
     var fadeToBlack = true { didSet { renderer.finalClose = fadeToBlack ? 1 : 0 } }
     var onCaptureFailure: ((String) -> Void)?
@@ -40,6 +40,9 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     private static let releaseDuration: CFTimeInterval = 0.45
     private static let motionBand: Double = 0.03            // turn units, about 3 degrees, above whole-degree jitter
     private static let noReleaseBelow: Double = 20          // degrees; a lid this far shut is closing, not resting
+    private static let leadSeconds: Double = 0.07           // predict the lid this far ahead so the follow filter's lag cancels
+    private static let leadDeadZone: Double = 12            // degrees per second; below this the lid is resting, no lead
+    private static let leadMaxDegrees: Double = 6
 
     private let panel: NSPanel
     private let renderer: FoldRenderer
@@ -52,10 +55,14 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     private var fadeDeadline: CFTimeInterval?
     private var framesSinceShow = 0
 
-    // Lid velocity, degrees per second, from raw whole-degree samples (main thread)
-    private var lastRaw: Double?
-    private var lastRawTime: CFTimeInterval = 0
+    // Lid motion (main thread). The sensor is polled at 60 Hz but its report only refreshes about
+    // 8 times a second, so at closing speed each fresh value is 15 to 30 degrees from the last.
+    // Velocity comes from the last two fresh values; between them the estimate is dead-reckoned
+    // (last value + velocity * elapsed) so the renderer gets a continuous target.
+    private var lastChange: (angle: Double, time: CFTimeInterval)?
     private var velocity: Double = 0
+    private static let reckonMaxSeconds: CFTimeInterval = 0.35  // never extrapolate further than this (sensor can go 300 ms between refreshes on reopen)
+    private static let stoppedAfter: CFTimeInterval = 0.35      // no fresh value for this long: the lid is still
 
     // Auto-release (main thread)
     private var stillSince: CFTimeInterval = 0
@@ -67,6 +74,10 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     private var releasedAt: Double = 0
     private var released = false
     private var releasedFloor: Double = 0
+    private var handingBack = false
+    private var handbackStart: CFTimeInterval = 0
+    private var handbackFrom: Double = 0
+    private static let handbackDuration: CFTimeInterval = 0.25
 
     // Capture stream. Lifecycle on main; frames arrive on sampleQueue; shared bits under `lock`.
     private let sampleQueue = DispatchQueue(label: "com.brendan.livewall.fold-frames", qos: .userInteractive)
@@ -110,6 +121,7 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
         panel.orderOut(nil)
 
         renderer.blurStrength = Float(intensity)
+        renderer.rangeDegrees = Float(clearAngle - Self.endAngle)
         renderer.onFrame = { [weak self] now in self?.frameDrawn(at: now) }
         renderer.onFrameReady = { [weak self] in self?.present() }
 
@@ -134,12 +146,25 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     /// once per displayed frame; feeding the monitor's smoothed angle would double the lag.
     func update(angle raw: Double) {
         let now = CACurrentMediaTime()
-        if let last = lastRaw {
-            let dt = max(now - lastRawTime, 0.001)
-            velocity += ((raw - last) / dt - velocity) * 0.25
+        if let last = lastChange {
+            if raw != last.angle {
+                let v = (raw - last.angle) / max(now - last.time, 0.01)
+                velocity += (v - velocity) * 0.6
+                lastChange = (raw, now)
+            } else if now - last.time > Self.stoppedAfter {
+                velocity = 0
+            }
+        } else {
+            lastChange = (raw, now)
         }
-        lastRaw = raw
-        lastRawTime = now
+        if abs(velocity) < 1 { velocity = 0 }
+
+        // Dead reckoning between sensor refreshes.
+        var estimate = raw
+        if let last = lastChange, velocity != 0 {
+            estimate = raw + velocity * min(now - last.time, Self.reckonMaxSeconds)
+            estimate = min(max(estimate, Self.endAngle), 180)
+        }
 
         let target = turn(for: raw)
 
@@ -154,7 +179,17 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
         }
 
         let resolved = resolveRelease(target: target, angle: raw, now: now)
-        renderer.targetTurn = Float(resolved)
+        // Lead prediction, only while the sensor is driving (not during a release or after one):
+        // aim the renderer at where the lid will be one filter constant from now.
+        var renderTarget = resolved
+        if resolved == target {
+            var lead = 0.0
+            if abs(velocity) > Self.leadDeadZone {
+                lead = min(max(velocity * Self.leadSeconds, -Self.leadMaxDegrees), Self.leadMaxDegrees)
+            }
+            renderTarget = turn(for: estimate + lead)
+        }
+        renderer.targetTurn = Float(renderTarget)
         let speed = abs(velocity)
         renderer.motionBoost = speed > 30 ? Float(min((speed - 30) * 0.02, 12)) : 0
 
@@ -181,13 +216,16 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     /// further closed than where it let go; then grow the fold back in from flat.
     private func resolveRelease(target: Double, angle: Double, now: CFTimeInterval) -> Double {
         if releasing {
-            if abs(target - releasedAt) > Self.motionBand {      // the lid moved again: hand control straight back
-                releasing = false
-                resetStillness(target)
-                return target
-            }
             let t = min(1, (now - releaseStart) / Self.releaseDuration)
             let eased = 1 - pow(1 - t, 3)
+            if abs(target - releasedAt) > Self.motionBand {      // the lid moved again: blend back to it, no snap
+                releasing = false
+                handingBack = true
+                handbackStart = now
+                handbackFrom = releaseFrom * (1 - eased)
+                resetStillness(target)
+                return handbackFrom
+            }
             if t >= 1 {
                 releasing = false
                 released = true
@@ -196,6 +234,12 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
                 return 0
             }
             return releaseFrom * (1 - eased)
+        }
+        if handingBack {
+            let t = min(1, (now - handbackStart) / Self.handbackDuration)
+            let eased = 1 - pow(1 - t, 3)
+            if t >= 1 { handingBack = false; return target }
+            return handbackFrom + (target - handbackFrom) * eased
         }
         if released {
             if target < releasedFloor - Self.motionBand { releasedFloor = target }
@@ -302,6 +346,7 @@ final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
         stopStream()
         releasing = false
         released = false
+        handingBack = false
     }
 
     @objc private func screensChanged() {
