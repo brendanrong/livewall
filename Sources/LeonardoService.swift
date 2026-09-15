@@ -2,121 +2,146 @@ import Foundation
 
 // MARK: - Models / resolutions exposed in the UI
 
-/// One of the three video models the user can pick in the Generate pane.
+/// One of the six video models the user can pick in the Generate pane.
 /// Each carries its own duration list and supported resolutions because
 /// the underlying Leonardo models all have different constraints.
+/// All go through the v2 unified generations endpoint with the same body
+/// shape (prompt, duration, width, height, motion_has_audio, guidances).
 enum LeonardoModel: String, CaseIterable {
-    // All models go through the v2 unified generations endpoint.
-    case kling30        = "kling-3.0"
-    case seedance20Fast = "seedance-2.0-fast"
-    case ltxv23Pro      = "ltxv-2.3-pro"
-    // Veo 3.1 Fast has two model ids depending on endpoint: VEO3_1FAST
-    // for the older v1 image-to-video path (1080p only), and the
-    // hyphenated `veo-3.1-fast-generate-001` for v2 (supports 4K).
-    // We use v2 for the higher ceiling.
-    case veo31Fast      = "veo-3.1-fast-generate-001"
+    case hailuo03    = "hailuo-03"                 // MiniMax Hailuo 03: native 1440p, best motion
+    case seedance25  = "bytedance/seedance-2.5"    // up to 30 s, free width/height
+    case veo31       = "veo-3.1-generate-001"      // Google, 4K, polished
+    case kling30Turbo = "kling-3.0-turbo"          // Kling 3.0 look, up to 20x faster
+    case wan30       = "alibaba/wan-3.0"           // up to 30 s at 1080p
+    case flux3Video  = "bfl/flux-3-video"          // up to 20 s, strong prompt adherence
 
     var displayName: String {
         switch self {
-        case .kling30:        return "Kling 3.0"
-        case .seedance20Fast: return "Seedance 2.0 Fast"
-        case .ltxv23Pro:      return "LTX 2.3 Pro"
-        case .veo31Fast:       return "Veo 3.1 Fast"
+        case .hailuo03:     return "Hailuo 03"
+        case .seedance25:   return "Seedance 2.5"
+        case .veo31:        return "Veo 3.1"
+        case .kling30Turbo: return "Kling 3.0 Turbo"
+        case .wan30:        return "Wan 3.0"
+        case .flux3Video:   return "FLUX 3 Video"
         }
     }
 
     /// Allowed durations in seconds, ordered as we want them to appear.
+    /// Models that accept any whole second are thinned to sensible steps.
     var durations: [Int] {
         switch self {
-        case .kling30:        return [3, 5, 7, 10, 15]
-        case .seedance20Fast: return [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-        case .ltxv23Pro:      return [6, 8, 10]
-        case .veo31Fast:       return [4, 6, 8]   // per Leonardo docs
+        case .hailuo03:     return [5, 6, 8, 10, 12, 15]                  // docs: 5 to 15
+        case .seedance25:   return [4, 5, 6, 8, 10, 12, 15, 20, 25, 30]   // docs: 4 to 30
+        case .veo31:        return [4, 6, 8]                              // docs: 4, 6, 8
+        case .kling30Turbo: return [3, 5, 7, 10, 15]                      // docs: 3 to 15
+        case .wan30:        return [3, 5, 8, 10, 15, 20, 25, 30]          // docs: 2 to 30
+        case .flux3Video:   return [5, 6, 8, 10, 12, 15, 20]              // docs: 5 to 20
         }
     }
 
     var defaultDuration: Int {
         switch self {
-        case .kling30:        return 5
-        case .seedance20Fast: return 8
-        case .ltxv23Pro:      return 8
-        case .veo31Fast:       return 8
+        case .veo31:        return 8
+        case .kling30Turbo: return 5
+        default:            return 8
         }
     }
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
-    /// Kling 3.0, LTX 2.3 Pro, and Veo 3.1 Fast all support 4K via the
-    /// v2 endpoint with real 3840x2160 dimensions + mode=RESOLUTION_2160.
-    /// Seedance 2.0 Fast is 1080p only.
+    /// Verified against the live API on 2026-09-15: Hailuo 03 renders
+    /// 2560x1440 (needs quality STANDARD); Seedance 2.5 rejects anything
+    /// above 1920x1080 despite Leonardo's blog saying 4K; Veo 3.1 documents
+    /// 1080p and 4K. The rest cap at 1080p.
     var resolutions: [LeonardoResolution] {
         switch self {
-        case .kling30:        return [.fullHD, .uhd4K]
-        case .seedance20Fast: return [.fullHD]
-        case .ltxv23Pro:      return [.fullHD, .qhd1440, .uhd4K]
-        case .veo31Fast:      return [.fullHD, .uhd4K]
+        case .hailuo03:     return [.qhd1440]
+        case .seedance25:   return [.fullHD]
+        case .veo31:        return [.fullHD, .uhd4K]
+        case .kling30Turbo: return [.fullHD]
+        case .wan30:        return [.fullHD]
+        case .flux3Video:   return [.fullHD]
         }
     }
 
     var defaultResolution: LeonardoResolution {
         switch self {
-        case .ltxv23Pro: return .qhd1440
-        default:         return .fullHD
+        case .hailuo03: return .qhd1440
+        default:        return .fullHD
+        }
+    }
+
+    /// Extra parameters a model needs beyond the shared body.
+    var extraParameters: [String: Any] {
+        switch self {
+        case .hailuo03: return ["quality": "STANDARD"]   // the default TURBO tier rejects 2560x1440
+        default:        return [:]
         }
     }
 
     /// Whether this model supports an optional start-frame image.
     var supportsStartFrame: Bool {
-        // All four currently allow guidances.start_frame per docs.
+        // All six document guidances.start_frame.
         return true
     }
 
     /// Whether this model supports an optional end frame (transition video).
     /// End frame requires start frame to also be set.
     var supportsEndFrame: Bool {
-        // Kling, Seedance, Veo, and LTX all document end_frame.
-        return true
+        switch self {
+        case .kling30Turbo: return false   // docs list start_frame only
+        default:            return true
+        }
     }
 
     /// Rough wall-clock time we expect a generation to take, in seconds.
     /// Used by the progress bar to give the user a sense of pacing.
+    /// Estimates; Leonardo publishes no timings for the new models.
     func expectedSeconds(forClipDuration duration: Int) -> TimeInterval {
         let base: TimeInterval
         switch self {
-        case .kling30:        base = 180  // 3 min for 5s
-        case .seedance20Fast: base = 90   // 1.5 min for 8s
-        case .ltxv23Pro:      base = 200  // ~3.3 min for 8s at 1440p
-        case .veo31Fast:       base = 120  // ~2 min for 8s
+        case .hailuo03:     base = 150
+        case .seedance25:   base = 120
+        case .veo31:        base = 180
+        case .kling30Turbo: base = 60    // Leonardo: up to 20x faster than Kling 3.0
+        case .wan30:        base = 120
+        case .flux3Video:   base = 150
         }
         let scale = 1.0 + Double(max(duration, 1) - 5) * 0.04
         return base * scale
     }
 
-    /// Rough cost estimate in USD for the given parameters. Numbers come
-    /// from observed `cost.amount` values in real generation responses,
-    /// extrapolated. Always shown to the user with a "~" prefix because
-    /// these are estimates, not contracts.
+    /// Leonardo bills in API credits; this is the approximate USD value of
+    /// one credit on PAYG. Leonardo does not publish the rate, so the UI
+    /// always shows the result with a "~".
+    static let usdPerCredit: Double = 0.0025
+
+    /// API credits per second of video at the model's default resolution,
+    /// from real `cost.amount` values returned on 2026-09-15 (text to video).
+    var creditsPerSecondAtDefaultResolution: Double {
+        switch self {
+        case .hailuo03:     return 120   // 600 credits for 5 s at 2560x1440
+        case .seedance25:   return 539   // 2156 credits for 4 s at 1080p
+        case .veo31:        return 400   // 1600 credits for 4 s at 1080p
+        case .kling30Turbo: return 160   // 480 credits for 3 s at 1080p
+        case .wan30:        return 190   // 380 credits for 2 s at 1080p
+        case .flux3Video:   return 275   // 1375 credits for 5 s at 1080p
+        }
+    }
+
+    /// Rough cost estimate in USD for the given parameters. Always shown
+    /// to the user with a "~" prefix because these are estimates, not
+    /// contracts. Resolutions other than the measured default scale by
+    /// pixel count; frames add a small premium.
     func estimatedCostUSD(resolution: LeonardoResolution,
                           duration: Int,
                           hasStartFrame: Bool,
                           hasEndFrame: Bool) -> Double {
-        // Per-second base rate at 1080p, in USD.
-        let baseRatePerSecond: Double
-        switch self {
-        case .kling30:        baseRatePerSecond = 0.17  // ~$0.84 for 5s
-        case .seedance20Fast: baseRatePerSecond = 0.36  // ~$1.81 for 5s
-        case .ltxv23Pro:      baseRatePerSecond = 0.45  // estimated
-        case .veo31Fast:       baseRatePerSecond = 0.30  // estimated
-        }
-        // Resolution multiplier — pixel count scales roughly with cost.
-        let resMultiplier: Double
-        switch resolution {
-        case .fullHD:  resMultiplier = 1.0
-        case .qhd1440: resMultiplier = 1.6   // ~1.78x pixels
-        case .uhd4K:   resMultiplier = 3.5   // ~4x pixels but Leonardo discounts a bit
-        }
-        // Image-to-video typically a small premium on top.
+        let measuredPixels = Double(defaultResolution.width * defaultResolution.height)
+        let wantedPixels = Double(resolution.width * resolution.height)
+        let resMultiplier = resolution == defaultResolution ? 1.0 : min(wantedPixels / measuredPixels, 3.5)
         let frameMultiplier = (hasStartFrame || hasEndFrame) ? 1.10 : 1.0
-        return baseRatePerSecond * Double(duration) * resMultiplier * frameMultiplier
+        let credits = creditsPerSecondAtDefaultResolution * Double(duration) * resMultiplier * frameMultiplier
+        return credits * Self.usdPerCredit
     }
 }
 
@@ -171,7 +196,7 @@ struct LeonardoImageRef: Equatable {
 // MARK: - Service
 
 /// Talks to Leonardo.AI's v2 video-generation endpoint. The pipeline is
-/// single-step now (text → video) for all three supported models. Each
+/// single-step (text or image to video) for all six supported models. Each
 /// generation:
 ///   1. POST /v2/generations with model + parameters
 ///   2. Poll /v1/generations/{id} until COMPLETE
@@ -295,63 +320,24 @@ final class LeonardoService {
             guidances["end_frame"] = [["image": ["id": ef.id, "type": ef.type]]]
         }
 
-        switch model {
-        case .ltxv23Pro, .veo31Fast:
-            // LTX 2.3 Pro and Veo 3.1 Fast (v2 path) share the same
-            // body shape: real dimensions + mode + quantity +
-            // prompt_enhance + audio. prompt_enhance must be OFF
-            // when a start_frame is set or the API returns
-            // VALIDATION_ERROR.
-            var params: [String: Any] = [
-                "prompt": prompt,
-                "duration": duration,
-                "width": resolution.width,
-                "height": resolution.height,
-                "mode": resolution.rawValue,
-                "audio": true,
-                "quantity": 1,
-                "prompt_enhance": (startFrame == nil) ? "AUTO" : "OFF",
-            ]
-            if !guidances.isEmpty { params["guidances"] = guidances }
-            body = [
-                "model": model.rawValue,
-                "public": false,
-                "parameters": params,
-            ]
-        case .kling30:
-            // Kling 3.0 needs `mode` for non-1080p output. Without
-            // it the API defaults to RESOLUTION_1080 regardless of
-            // the width/height we send. Including it always is
-            // safe and explicit.
-            var params: [String: Any] = [
-                "prompt": prompt,
-                "duration": duration,
-                "width": resolution.width,
-                "height": resolution.height,
-                "mode": resolution.rawValue,
-            ]
-            if !guidances.isEmpty { params["guidances"] = guidances }
-            body = [
-                "model": model.rawValue,
-                "public": false,
-                "parameters": params,
-            ]
-        case .seedance20Fast:
-            // Plain top-level envelope. Seedance is 1080p only,
-            // so no `mode` field needed.
-            var params: [String: Any] = [
-                "prompt": prompt,
-                "duration": duration,
-                "width": resolution.width,
-                "height": resolution.height,
-            ]
-            if !guidances.isEmpty { params["guidances"] = guidances }
-            body = [
-                "model": model.rawValue,
-                "public": false,
-                "parameters": params,
-            ]
-        }
+        // One body shape for all six models (per each model's Leonardo doc
+        // page): explicit width/height, duration, audio flag, quantity. No
+        // `mode`: Kling 3.0 Turbo deprecates it and the others never had it.
+        var params: [String: Any] = [
+            "prompt": prompt,
+            "duration": duration,
+            "width": resolution.width,
+            "height": resolution.height,
+            "motion_has_audio": true,
+            "quantity": 1,
+        ]
+        for (k, v) in model.extraParameters { params[k] = v }
+        if !guidances.isEmpty { params["guidances"] = guidances }
+        body = [
+            "model": model.rawValue,
+            "public": false,
+            "parameters": params,
+        ]
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"

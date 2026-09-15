@@ -1643,13 +1643,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var currentSelectedModel: LeonardoModel {
         let raw = (generateModelPopup?.selectedItem?.representedObject as? String)
             ?? Preferences.shared.generateModel
-        return LeonardoModel(rawValue: raw) ?? .ltxv23Pro
+        return LeonardoModel(rawValue: raw) ?? .hailuo03
     }
 
     /// Apply saved selections to the three popups, also rebuilding
     /// resolution + duration lists so they match the model.
     private func loadGenerateSelections() {
-        let savedModel = LeonardoModel(rawValue: Preferences.shared.generateModel) ?? .ltxv23Pro
+        let savedModel = LeonardoModel(rawValue: Preferences.shared.generateModel) ?? .hailuo03
         if let idx = LeonardoModel.allCases.firstIndex(of: savedModel) {
             generateModelPopup.selectItem(at: idx)
         }

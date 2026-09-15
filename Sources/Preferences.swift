@@ -290,16 +290,17 @@ final class Preferences {
 
     // MARK: - Generate pane state
 
-    /// Last-selected video model in the Generate pane. Default: LTX 2.3 Pro
-    /// (highest quality of the four; goes up to 1440p).
+    /// Last-selected video model in the Generate pane. Default: Hailuo 03
+    /// (native 1440p, the best motion of the six). A saved id from an older
+    /// release that no longer exists falls back to this in the pane.
     var generateModel: String {
-        get { defaults.string(forKey: Key.generateModel) ?? "ltxv-2.3-pro" }
+        get { defaults.string(forKey: Key.generateModel) ?? "hailuo-03" }
         set { defaults.set(newValue, forKey: Key.generateModel) }
     }
 
-    /// Last-selected resolution mode. Default: 1440p (LTX 2.3 Pro's
-    /// top resolution). The dropdown clamps to whatever the picked
-    /// model actually supports.
+    /// Last-selected resolution mode. Default: 1440p (Hailuo 03's only
+    /// output). The dropdown clamps to whatever the picked model
+    /// actually supports.
     var generateResolution: String {
         get { defaults.string(forKey: Key.generateResolution) ?? "RESOLUTION_1440" }
         set { defaults.set(newValue, forKey: Key.generateResolution) }
