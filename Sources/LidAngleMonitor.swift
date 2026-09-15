@@ -40,11 +40,17 @@ final class LidAngleMonitor {
     private var report = [UInt8](repeating: 0, count: 8)
     private var failures = 0
     private var lastSampleTime = CFAbsoluteTimeGetCurrent()
+    private var rediscoverTimer: Timer?
+    private var rediscoverAttempts = 0
 
     private static let idleInterval: TimeInterval = 1.0 / 10.0
     private static let activeInterval: TimeInterval = 1.0 / 60.0
     private static let maxFailures = 5
     private static let noOptions = IOOptionBits(kIOHIDOptionsTypeNone)
+    /// The sensor is sometimes not enumerable, or still held by a previous instance, in the first
+    /// seconds after launch. Keep looking for it instead of giving up for the whole run.
+    private static let rediscoverInterval: TimeInterval = 2
+    private static let rediscoverMaxAttempts = 15
 
     init() {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, Self.noOptions)
@@ -67,12 +73,17 @@ final class LidAngleMonitor {
     // MARK: - Control
 
     func start() {
-        guard isAvailable, timer == nil, let device = device else { return }
+        guard timer == nil else { return }
+        guard isAvailable, let device = device else {
+            scheduleRediscovery()
+            return
+        }
         guard IOHIDDeviceOpen(device, Self.noOptions) == kIOReturnSuccess else {
             markUnavailable()
             return
         }
         isOpen = true
+        failures = 0
         if let first = Self.read(device, into: &report) {
             rawAngle = first
             angle = first
@@ -83,6 +94,8 @@ final class LidAngleMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+        rediscoverTimer?.invalidate()
+        rediscoverTimer = nil
         if isOpen, let device = device {
             IOHIDDeviceClose(device, Self.noOptions)
             isOpen = false
@@ -133,6 +146,37 @@ final class LidAngleMonitor {
         stop()
         isAvailable = false
         NotificationCenter.default.post(name: Self.availabilityChangedNotification, object: nil)
+        rediscoverAttempts = 0
+        scheduleRediscovery()
+    }
+
+    // MARK: - Rediscovery
+
+    /// Look for the sensor again every few seconds, for a while. Runs when the device was not found
+    /// at launch or stopped answering. On success, starts polling and tells the app.
+    private func scheduleRediscovery() {
+        guard rediscoverTimer == nil, rediscoverAttempts < Self.rediscoverMaxAttempts else { return }
+        rediscoverTimer = Timer.scheduledTimer(withTimeInterval: Self.rediscoverInterval, repeats: true) { [weak self] _ in
+            self?.rediscover()
+        }
+    }
+
+    private func rediscover() {
+        rediscoverAttempts += 1
+        if let found = Self.firstReadableDevice(in: manager) {
+            rediscoverTimer?.invalidate()
+            rediscoverTimer = nil
+            rediscoverAttempts = 0
+            device = found
+            isAvailable = true
+            start()
+            if isAvailable {
+                NotificationCenter.default.post(name: Self.availabilityChangedNotification, object: nil)
+            }
+        } else if rediscoverAttempts >= Self.rediscoverMaxAttempts {
+            rediscoverTimer?.invalidate()
+            rediscoverTimer = nil
+        }
     }
 
     // MARK: - HID plumbing (isolated so a future report-format change is a one-place fix)
