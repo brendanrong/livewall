@@ -27,7 +27,15 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
 DMG="$HERE/${APP_NAME}-${VERSION}.dmg"
 
 SIGN_IDENTITY="Developer ID Application: Brendan Rong (VTMKE23N5G)"
-NOTARY_PROFILE="LiveWall-Notary"
+# Keychain profile for notarytool. Same Apple ID and team as Cherry, so fall
+# back to that profile when the LiveWall one isn't on this Mac.
+NOTARY_PROFILE="${NOTARY_PROFILE:-LiveWall-Notary}"
+if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+    if xcrun notarytool history --keychain-profile "Cherry-Notary" >/dev/null 2>&1; then
+        echo "→ Profile $NOTARY_PROFILE not found, using Cherry-Notary"
+        NOTARY_PROFILE="Cherry-Notary"
+    fi
+fi
 
 # 1. Build a fresh, Developer ID-signed .app
 echo "→ Step 1/5: Building LiveWall.app …"
