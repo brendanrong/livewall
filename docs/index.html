@@ -204,6 +204,11 @@
   }
   footer a:hover { color: var(--text); }
   .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  /* Features */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 8px 0 40px; }
+  .feature { border: 0.5px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .feature h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--text); }
+  .feature p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
   /* Responsive */
   @media (max-width: 540px) {
     main { padding: 56px 20px 32px; }
@@ -247,8 +252,38 @@
     <p>Built on late nights to keep my OLED happy. If your desktop could use a bit more life, give it a spin.</p>
   </section>
 
+  <section class="features" aria-label="Features">
+    <div class="feature">
+      <h3>Any video, any display</h3>
+      <p>A file, a folder that rotates with cross-fade, or a web URL. YouTube auto-converts to a muted loop. Per-display sources, pause on battery or fullscreen, global hotkey.</p>
+    </div>
+    <div class="feature">
+      <h3>Generate a wallpaper</h3>
+      <p>Type a prompt or drop in a start frame. Six current video models including Hailuo 03 at 4K, Veo 3.1 and Seedance 2.5. On the house.</p>
+    </div>
+    <div class="feature">
+      <h3>Hinge fold</h3>
+      <p>Close the lid and the whole desktop folds with it, driven by the MacBook's lid angle sensor. The picture holds still in space while the glass sweeps through it.</p>
+    </div>
+    <div class="feature">
+      <h3>Kind to OLED</h3>
+      <p>Keeps pixels moving so they don't burn in. Native, signed, notarized, no tracking, no third-party libraries.</p>
+    </div>
+  </section>
+
   <section class="releases">
     <h2>Releases</h2>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v2.8.1</span>
+        <span class="release-date">September 2026</span>
+      </div>
+      <ul class="release-changes">
+        <li>Hailuo 03 now offers 4K alongside 1440p, for about a quarter more than the 1440p run.</li>
+        <li>Cost estimates for Hailuo 03 use measured credit costs at both resolutions.</li>
+      </ul>
+    </div>
 
     <div class="release">
       <div class="release-header">
