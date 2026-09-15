@@ -14,7 +14,8 @@ import CoreVideo
 final class LidFoldOverlay: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: Settings (AppDelegate.rebuildHingeOverlay writes these)
 
-    /// Blur strength, 0.2 to 1.0. Geometry never scales with it; it follows the lid.
+    /// Fold intensity, 0.2 to 1.0: frost, darkening and how close the eye sits (perspective strength).
+    /// The bend itself always tracks the lid degree for degree.
     var intensity: Double = 0.5 { didSet { renderer.blurStrength = Float(min(max(intensity, 0.2), 1)) } }
     /// Lid angle where the fold starts, degrees.
     var clearAngle: Double = 110 { didSet { renderer.rangeDegrees = Float(clearAngle - Self.endAngle) } }

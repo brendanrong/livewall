@@ -58,7 +58,8 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
     /// The bend follows the lid degree for degree up to here. Past about 80 the plane is edge-on
     /// to the viewer and the projection degenerates, so the close-to-black covers the rest.
     static let maxBendDegrees: Float = 75
-    /// Viewer distance in screen heights. A 16-inch panel is about 21 cm tall; 2.5 is arm's length.
+    /// Viewer distance in screen heights at 100 percent intensity. A 16-inch panel is about 21 cm
+    /// tall; 2.5 is arm's length. Lower intensity multiplies this up to 1.64x (see draw).
     static let eyeDistance: Float = 2.5
     /// Horizontal part of the projection. 1 = physical: the picture narrows toward the top as the
     /// glass comes closer to the eye, which is what makes it read as staying put in space. 0 keeps
@@ -237,7 +238,9 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
         u.aspect = aspect
         u.turn = Self.shaped(displayedTurn)
         u.bend = min(displayedTurn * rangeDegrees, Self.maxBendDegrees) * .pi / 180
-        u.eye = Self.eyeDistance
+        // Intensity pulls the eye back: at 20 percent the perspective is a lot gentler, at 100 it is
+        // the measured 2.5 screen heights. The picture still tracks the lid degree for degree.
+        u.eye = Self.eyeDistance * (1.8 - 0.8 * min(max(blurStrength, 0.2), 1))
         u.blurStrength = blurStrength
         u.reflection = Self.reflection
         u.sampleCount = adaptiveTaps(displayedTurn)
@@ -443,13 +446,15 @@ final class FoldRenderer: MTKView, MTKViewDelegate {
         float3 color = gaussianSample(tex, s, plane, radius, u.cover, uiPixel, in.position.xy, taps);
 
         // Glass at a grazing angle: darker toward the top, a soft specular band two thirds up, a thin line at the hinge.
-        color *= 1.0 - 0.20 * sn * pow(fromHinge, 1.5);
+        color *= 1.0 - 0.20 * clamp(u.blurStrength, 0.2, 1.0) * sn * pow(fromHinge, 1.5);
         color += float3(0.82, 0.85, 0.86) * exp(-pow((fromHinge - 0.65) / 0.35, 2.0)) * sn * 0.025 * u.reflection;
         color += float3(0.90, 0.93, 0.95) * exp(-pow(fromHinge / 0.06, 2.0)) * sn * 0.035;
 
-        // Into the void: the top darkens with turn, up to 80 percent; the last tenth of the turn closes to black.
+        // Into the void: the top darkens with turn, up to 80 percent at full intensity (40 at the
+        // minimum); the last tenth of the turn closes to black regardless.
+        float k = clamp(u.blurStrength, 0.2, 1.0);
         float voidAmount = pow(turn, 1.1) * clamp((fromHinge - 0.20) / 0.80, 0.0, 1.0);
-        color *= 1.0 - 0.80 * voidAmount;
+        color *= 1.0 - 0.80 * mix(0.5, 1.0, k) * voidAmount;
         float close = mix(1.0, 1.0 - smoothstep(0.90, 1.0, turn), u.finalClose);
         color *= close;
         return float4(mix(kVoid, color, mask * close), 1.0);
