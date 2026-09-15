@@ -15,6 +15,10 @@ final class WallpaperController {
     /// (mute / opacity / source) still work; we just stop the rate.
     private var pausedByPower = false
 
+    /// Set by AppDelegate. When the Mac has no lid-angle sensor, the wallpaper plays a short unfold
+    /// on wake instead of the Hinge fold. Defaults to "has sensor" so nothing animates until wired.
+    var lidSensorAvailable: () -> Bool = { true }
+
     // MARK: - Lifecycle
 
     func start() {
@@ -34,7 +38,11 @@ final class WallpaperController {
             guard let self = self,
                   Preferences.shared.wallpaperEnabled else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.replayCurrentContent()
+                guard let self = self else { return }
+                self.replayCurrentContent()
+                if !self.lidSensorAvailable() {
+                    self.windows.forEach { $0.playUnfold() }
+                }
             }
         }
     }

@@ -96,6 +96,23 @@ final class VideoWallpaperView: NSView {
         player?.isMuted = muted
     }
 
+    /// Macs without a lid sensor: play a short unfold on the wallpaper layer when the display wakes.
+    /// Wallpaper layer only, no capture, no permission.
+    func playUnfold(duration: CFTimeInterval = 0.9) {
+        guard let root = layer, let pl = playerLayer, bounds.width > 0 else { return }
+        var perspective = CATransform3DIdentity
+        perspective.m34 = -1.0 / (bounds.width * 1.6)
+        root.sublayerTransform = perspective
+        pl.anchorPoint = CGPoint(x: 0.5, y: 0)           // hinge: bottom edge (layer coords are y-up)
+        pl.position = CGPoint(x: bounds.midX, y: 0)
+        let unfold = CABasicAnimation(keyPath: "transform.rotation.x")
+        unfold.fromValue = -38.0 * Double.pi / 180
+        unfold.toValue = 0
+        unfold.duration = duration
+        unfold.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        pl.add(unfold, forKey: "unfold")
+    }
+
     func setPaused(_ paused: Bool) {
         guard let p = player else { return }
         if paused { p.pause() } else { p.play() }

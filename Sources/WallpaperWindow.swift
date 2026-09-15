@@ -121,6 +121,11 @@ final class WallpaperWindow: NSWindow {
         videoView?.setMuted(muted)
     }
 
+    /// Unfold-on-wake for Macs without a lid sensor. Video sources only.
+    func playUnfold() {
+        videoView?.playUnfold()
+    }
+
     func togglePaused() {
         videoView?.togglePaused()
     }

@@ -21,6 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         installMainMenu()
 
         controller = WallpaperController()
+        controller.lidSensorAvailable = { [weak self] in self?.lid.isAvailable ?? true }
         prefsWindow = PreferencesWindowController(controller: controller)
         statusMenu = StatusMenu(controller: controller, openPreferences: { [weak self] in
             self?.prefsWindow.show()
