@@ -14,6 +14,7 @@ enum LeonardoModel: String, CaseIterable {
     case kling30Turbo = "kling-3.0-turbo"          // Kling 3.0 look, up to 20x faster
     case wan30       = "alibaba/wan-3.0"           // up to 30 s at 1080p
     case flux3Video  = "bfl/flux-3-video"          // up to 20 s, strong prompt adherence
+    case seedance20  = "seedance-2.0"              // the 4K Seedance; expensive at 4K
 
     var displayName: String {
         switch self {
@@ -23,6 +24,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30Turbo: return "Kling 3.0 Turbo"
         case .wan30:        return "Wan 3.0"
         case .flux3Video:   return "FLUX 3 Video"
+        case .seedance20:   return "Seedance 2.0"
         }
     }
 
@@ -36,6 +38,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30Turbo: return [3, 5, 7, 10, 15]                      // docs: 3 to 15
         case .wan30:        return [3, 5, 8, 10, 15, 20, 25, 30]          // docs: 2 to 30
         case .flux3Video:   return [5, 6, 8, 10, 12, 15, 20]              // docs: 5 to 20
+        case .seedance20:   return [4, 5, 6, 8, 10, 12, 15]               // docs: 4 to 15
         }
     }
 
@@ -60,6 +63,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30Turbo: return [.fullHD]
         case .wan30:        return [.fullHD]
         case .flux3Video:   return [.fullHD]
+        case .seedance20:   return [.fullHD, .uhd4K]    // 3840x2160 verified live (with mode RESOLUTION_2160)
         }
     }
 
@@ -76,6 +80,13 @@ enum LeonardoModel: String, CaseIterable {
         case .hailuo03: return ["quality": "STANDARD"]   // the default TURBO tier rejects 1440p and 4K
         default:        return [:]
         }
+    }
+
+    /// Seedance 2.0 still keys its tier off the deprecated `mode` field; send it alongside width/height.
+    func extraParameters(for resolution: LeonardoResolution) -> [String: Any] {
+        var out = extraParameters
+        if self == .seedance20 { out["mode"] = resolution.rawValue }
+        return out
     }
 
     /// Whether this model supports an optional start-frame image.
@@ -105,6 +116,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30Turbo: base = 60    // Leonardo: up to 20x faster than Kling 3.0
         case .wan30:        base = 120
         case .flux3Video:   base = 150
+        case .seedance20:   base = 150
         }
         let scale = 1.0 + Double(max(duration, 1) - 5) * 0.04
         return base * scale
@@ -121,6 +133,7 @@ enum LeonardoModel: String, CaseIterable {
     func measuredCreditsPerSecond(at resolution: LeonardoResolution) -> Double? {
         switch (self, resolution) {
         case (.hailuo03, .uhd4K): return 152   // 760 credits for 5 s at 3840x2160
+        case (.seedance20, .uhd4K): return 1904 // 7616 credits for 4 s at 3840x2160
         default: return resolution == defaultResolution ? creditsPerSecondAtDefaultResolution : nil
         }
     }
@@ -133,6 +146,7 @@ enum LeonardoModel: String, CaseIterable {
         case .kling30Turbo: return 160   // 480 credits for 3 s at 1080p
         case .wan30:        return 190   // 380 credits for 2 s at 1080p
         case .flux3Video:   return 275   // 1375 credits for 5 s at 1080p
+        case .seedance20:   return 476   // estimated: 4K measured at 1904, scaled by pixels
         }
     }
 
@@ -343,7 +357,7 @@ final class LeonardoService {
             "motion_has_audio": true,
             "quantity": 1,
         ]
-        for (k, v) in model.extraParameters { params[k] = v }
+        for (k, v) in model.extraParameters(for: resolution) { params[k] = v }
         if !guidances.isEmpty { params["guidances"] = guidances }
         body = [
             "model": model.rawValue,

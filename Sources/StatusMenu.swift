@@ -95,6 +95,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         addItem(to: menu, title: "Choose Video File…", action: #selector(chooseVideoFile))
         addItem(to: menu, title: "Choose Video Folder…", action: #selector(chooseVideoFolder))
+        addItem(to: menu, title: "Rotate Through Library", action: #selector(rotateThroughLibrary))
         addItem(to: menu, title: "Set Web URL…", action: #selector(setWebURLAction))
         menu.addItem(.separator())
 
@@ -169,6 +170,10 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if panel.runModal() == .OK, let url = panel.url {
             controller?.setVideoFile(url)
         }
+    }
+
+    @objc private func rotateThroughLibrary() {
+        controller?.rotateThroughLibrary()
     }
 
     @objc private func chooseVideoFolder() {

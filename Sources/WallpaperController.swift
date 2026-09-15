@@ -105,6 +105,16 @@ final class WallpaperController {
         startRotation()
     }
 
+    /// Rotate through everything in ~/Movies/LiveWall/Library (generated,
+    /// featured, dropped in). Turns rotation on with a 30 minute interval if
+    /// the user never set one; the Playback pane then exposes the controls.
+    func rotateThroughLibrary() {
+        if Preferences.shared.rotationInterval <= 0 {
+            Preferences.shared.rotationInterval = 30 * 60
+        }
+        setVideoFolder(LibraryService.shared.rootFolder)
+    }
+
     func setWebURL(_ urlString: String) {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -277,15 +287,21 @@ final class WallpaperController {
 
     /// Pure: returns the list of playable video files in `url`. Caller decides
     /// whether to assign to `videoFiles` and what to do on empty.
+    /// Recursive, so the Library folder (which keeps Generated/ and Featured/
+    /// as subfolders) rotates as one playlist.
     private func loadVideosFromFolder(_ url: URL) -> [URL] {
         let exts: Set<String> = ["mp4", "mov", "m4v"]
-        let contents = (try? FileManager.default.contentsOfDirectory(
+        guard let enumerator = FileManager.default.enumerator(
             at: url,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles])) ?? []
-        return contents
-            .filter { exts.contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var found: [URL] = []
+        for case let file as URL in enumerator {
+            let isDir = (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir { continue }
+            if exts.contains(file.pathExtension.lowercased()) { found.append(file) }
+        }
+        return found.sorted { $0.path < $1.path }
     }
 
     private func startRotation() {

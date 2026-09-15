@@ -944,8 +944,15 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         topRowSpacer.translatesAutoresizingMaskIntoConstraints = false
         topRowSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        let rotateButton = NSButton(title: "Rotate Through Library",
+                                    target: self,
+                                    action: #selector(libraryRotateClicked))
+        rotateButton.bezelStyle = .rounded
+        rotateButton.controlSize = .small
+        rotateButton.toolTip = "Use the whole Library as the wallpaper and rotate through it. Interval, shuffle and cross-fade live in Playback."
+
         let topRow = NSStackView(views: [libraryStatusLabel, topRowSpacer,
-                                          revealButton, libraryRefreshButton])
+                                          rotateButton, revealButton, libraryRefreshButton])
         topRow.orientation = .horizontal
         topRow.alignment = .centerY
         topRow.spacing = 8
@@ -1159,6 +1166,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func libraryRefreshClicked() {
         refreshLibrary()
+    }
+
+    @objc private func libraryRotateClicked() {
+        controller?.rotateThroughLibrary()
+        loadValues()
     }
 
     @objc private func libraryRevealFolderClicked() {
