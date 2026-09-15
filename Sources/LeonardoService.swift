@@ -49,12 +49,12 @@ enum LeonardoModel: String, CaseIterable {
 
     /// Resolutions the model supports. Order = order shown in the dropdown.
     /// Verified against the live API on 2026-09-15: Hailuo 03 renders
-    /// 2560x1440 (needs quality STANDARD); Seedance 2.5 rejects anything
-    /// above 1920x1080 despite Leonardo's blog saying 4K; Veo 3.1 documents
-    /// 1080p and 4K. The rest cap at 1080p.
+    /// 2560x1440 and 3840x2160 (both need quality STANDARD); Seedance 2.5
+    /// rejects anything above 1920x1080 despite Leonardo's blog saying 4K;
+    /// Veo 3.1 documents 1080p and 4K. The rest cap at 1080p.
     var resolutions: [LeonardoResolution] {
         switch self {
-        case .hailuo03:     return [.qhd1440]
+        case .hailuo03:     return [.qhd1440, .uhd4K]
         case .seedance25:   return [.fullHD]
         case .veo31:        return [.fullHD, .uhd4K]
         case .kling30Turbo: return [.fullHD]
@@ -73,7 +73,7 @@ enum LeonardoModel: String, CaseIterable {
     /// Extra parameters a model needs beyond the shared body.
     var extraParameters: [String: Any] {
         switch self {
-        case .hailuo03: return ["quality": "STANDARD"]   // the default TURBO tier rejects 2560x1440
+        case .hailuo03: return ["quality": "STANDARD"]   // the default TURBO tier rejects 1440p and 4K
         default:        return [:]
         }
     }
@@ -115,8 +115,16 @@ enum LeonardoModel: String, CaseIterable {
     /// always shows the result with a "~".
     static let usdPerCredit: Double = 0.0025
 
-    /// API credits per second of video at the model's default resolution,
+    /// API credits per second of video at a resolution we have measured,
     /// from real `cost.amount` values returned on 2026-09-15 (text to video).
+    /// nil means unmeasured; the estimate then scales the default by pixels.
+    func measuredCreditsPerSecond(at resolution: LeonardoResolution) -> Double? {
+        switch (self, resolution) {
+        case (.hailuo03, .uhd4K): return 152   // 760 credits for 5 s at 3840x2160
+        default: return resolution == defaultResolution ? creditsPerSecondAtDefaultResolution : nil
+        }
+    }
+
     var creditsPerSecondAtDefaultResolution: Double {
         switch self {
         case .hailuo03:     return 120   // 600 credits for 5 s at 2560x1440
@@ -136,12 +144,16 @@ enum LeonardoModel: String, CaseIterable {
                           duration: Int,
                           hasStartFrame: Bool,
                           hasEndFrame: Bool) -> Double {
-        let measuredPixels = Double(defaultResolution.width * defaultResolution.height)
-        let wantedPixels = Double(resolution.width * resolution.height)
-        let resMultiplier = resolution == defaultResolution ? 1.0 : min(wantedPixels / measuredPixels, 3.5)
+        let perSecond: Double
+        if let measured = measuredCreditsPerSecond(at: resolution) {
+            perSecond = measured
+        } else {
+            let measuredPixels = Double(defaultResolution.width * defaultResolution.height)
+            let wantedPixels = Double(resolution.width * resolution.height)
+            perSecond = creditsPerSecondAtDefaultResolution * min(wantedPixels / measuredPixels, 3.5)
+        }
         let frameMultiplier = (hasStartFrame || hasEndFrame) ? 1.10 : 1.0
-        let credits = creditsPerSecondAtDefaultResolution * Double(duration) * resMultiplier * frameMultiplier
-        return credits * Self.usdPerCredit
+        return perSecond * Double(duration) * frameMultiplier * Self.usdPerCredit
     }
 }
 
