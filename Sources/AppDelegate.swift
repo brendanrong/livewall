@@ -8,6 +8,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let battery = BatteryMonitor()
     let fullscreen = FullscreenMonitor()
     let lid = LidAngleMonitor()
+    /// Desktop fold overlay. nil when the sensor is missing, the feature is
+    /// off, or Screen Recording isn't granted. Rebuilt via rebuildHingeOverlay().
+    var hinge: LidFoldOverlay?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Install a main menu (with at least an Edit menu) so text fields
@@ -24,8 +27,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
         controller.start()
 
-        // Lid-angle sensor. No-op on Macs that don't expose it.
+        // Lid-angle sensor + desktop fold. Both no-ops on Macs without the sensor.
         lid.start()
+        rebuildHingeOverlay()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(lidAngleChanged),
+            name: LidAngleMonitor.angleChangedNotification, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(rebuildHingeOverlay),
+            name: LidAngleMonitor.availabilityChangedNotification, object: nil
+        )
 
         applyHotkeyFromPrefs()
 
@@ -59,7 +71,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // they see.
         if !Preferences.shared.hasCompletedFirstLaunch {
             Preferences.shared.hasCompletedFirstLaunch = true
-            let needsPermission = lid.isAvailable && !CGPreflightScreenCaptureAccess()
+            let needsPermission = lid.isAvailable && !LidFoldOverlay.screenRecordingAllowed
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 if needsPermission {
                     self?.prefsWindow.show(section: .hinge)
@@ -178,11 +190,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// (Re)configure the fold overlay from prefs. Idempotent; every Hinge
+    /// control calls this after writing its pref. Tears the overlay down
+    /// when any precondition fails so no capture can start.
+    @objc func rebuildHingeOverlay() {
+        let prefs = Preferences.shared
+        guard lid.isAvailable, prefs.hingeFoldEnabled, LidFoldOverlay.screenRecordingAllowed else {
+            hinge = nil                                   // deinit hides the panel and stops the stream
+            refreshPowerPause()
+            return
+        }
+        if hinge == nil { hinge = LidFoldOverlay.make() }
+        hinge?.intensity = prefs.hingeIntensity
+        hinge?.clearAngle = prefs.hingeClearAngle
+        hinge?.fadeToBlack = prefs.hingeFadeToBlack
+        hinge?.onCaptureFailure = { message in
+            NSLog("LiveWall hinge: capture failed: %@", message)
+        }
+        hinge?.onFoldStateChanged = { [weak self] _ in self?.refreshPowerPause() }
+        lid.activeBelow = prefs.hingeClearAngle + 12      // 60 Hz sampling through the pre-arm band
+    }
+
+    @objc func lidAngleChanged() {
+        // Raw angle: the renderer's display-rate filter is the only smoothing.
+        hinge?.update(angle: lid.rawAngle ?? lid.angle)
+    }
+
     @objc func refreshPowerPause() {
         let prefs = Preferences.shared
         let onBatt = battery.hasBattery && battery.isOnBattery && prefs.pauseOnBattery
         let onFs = fullscreen.isAnyAppFullscreen && prefs.pauseOnFullscreen
-        controller?.setPausedByPower(onBatt || onFs)
+        let folded = prefs.hingePauseNearClose && (hinge?.isFolded ?? false)
+        controller?.setPausedByPower(onBatt || onFs || folded)
     }
 
     @objc func screensChanged(_ note: Notification) {

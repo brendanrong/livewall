@@ -7,13 +7,6 @@ enum ContentMode: String {
     case web
 }
 
-/// How the desktop folds as the lid closes. Lives here (not in the overlay)
-/// so Preferences can compile without the ScreenCaptureKit code.
-enum LidFoldStyle: String {
-    case hingeTilt = "tilt"
-    case blurDim = "blur"
-}
-
 /// One past wallpaper source the user picked. Stored as JSON in UserDefaults.
 struct RecentSource: Codable, Equatable {
     let mode: String       // ContentMode raw value
@@ -62,13 +55,14 @@ final class Preferences {
         static let generateDuration = "generateDuration"
         // Hinge fold (lid-angle driven desktop fold)
         static let hingeFoldEnabled = "hingeFoldEnabled"
-        static let hingeStyle = "hingeStyle"                  // "tilt" | "blur"
-        static let hingeIntensityTilt = "hingeIntensityTilt"  // 0.2…1.0
-        static let hingeIntensityBlur = "hingeIntensityBlur"
+        static let hingeIntensityTilt = "hingeIntensityTilt"  // single intensity, 0.2…1.0 (name kept so saved values survive)
         static let hingeClearAngle = "hingeClearAngle"        // degrees, 60…140
-        static let hingePauseNearClose = "hingePauseNearClose"
-        static let hingePauseBelow = "hingePauseBelow"        // degrees
+        static let hingePauseNearClose = "hingePauseNearClose" // pause video while folded
         static let hingeFadeToBlack = "hingeFadeToBlack"
+        // Dead since v2 of the fold. Kept in allKeys for one release so Reset clears stale values.
+        static let hingeStyle = "hingeStyle"
+        static let hingeIntensityBlur = "hingeIntensityBlur"
+        static let hingePauseBelow = "hingePauseBelow"
 
         static let allKeys: [String] = [
             contentMode, contentPath, rotationInterval, muted, opacity, allSpaces,
@@ -327,20 +321,10 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.hingeFoldEnabled) }
     }
 
-    var hingeStyle: LidFoldStyle {
-        get { LidFoldStyle(rawValue: defaults.string(forKey: Key.hingeStyle) ?? "") ?? .hingeTilt }
-        set { defaults.set(newValue.rawValue, forKey: Key.hingeStyle) }
-    }
-
-    /// Per-style intensity, 0.2…1.0. Default 0.7.
-    func hingeIntensity(for style: LidFoldStyle) -> Double {
-        let key = style == .hingeTilt ? Key.hingeIntensityTilt : Key.hingeIntensityBlur
-        return defaults.object(forKey: key) == nil ? 0.7 : defaults.double(forKey: key)
-    }
-
-    func setHingeIntensity(_ value: Double, for style: LidFoldStyle) {
-        let key = style == .hingeTilt ? Key.hingeIntensityTilt : Key.hingeIntensityBlur
-        defaults.set(max(0.2, min(1.0, value)), forKey: key)
+    /// Blur strength, 0.2…1.0. Default 0.5. Stored under the old tilt key so saved values survive.
+    var hingeIntensity: Double {
+        get { defaults.object(forKey: Key.hingeIntensityTilt) == nil ? 0.5 : defaults.double(forKey: Key.hingeIntensityTilt) }
+        set { defaults.set(max(0.2, min(1.0, newValue)), forKey: Key.hingeIntensityTilt) }
     }
 
     /// Lid angle (degrees) where the fold starts. Default 110.
@@ -349,15 +333,10 @@ final class Preferences {
         set { defaults.set(max(60, min(140, newValue)), forKey: Key.hingeClearAngle) }
     }
 
+    /// Pause video playback while the fold is visible. Default on.
     var hingePauseNearClose: Bool {
         get { defaults.object(forKey: Key.hingePauseNearClose) == nil ? true : defaults.bool(forKey: Key.hingePauseNearClose) }
         set { defaults.set(newValue, forKey: Key.hingePauseNearClose) }
-    }
-
-    /// Lid angle (degrees) below which video playback pauses. Default 20.
-    var hingePauseBelow: Double {
-        get { defaults.object(forKey: Key.hingePauseBelow) == nil ? 20 : defaults.double(forKey: Key.hingePauseBelow) }
-        set { defaults.set(max(5, min(60, newValue)), forKey: Key.hingePauseBelow) }
     }
 
     var hingeFadeToBlack: Bool {

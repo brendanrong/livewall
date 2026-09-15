@@ -92,6 +92,12 @@ compile_for_arch() {
         -framework UniformTypeIdentifiers \
         -framework ServiceManagement \
         -framework Carbon \
+        -framework Metal \
+        -framework MetalKit \
+        -framework ScreenCaptureKit \
+        -framework CoreMedia \
+        -framework CoreVideo \
+        -framework QuartzCore \
         -o "$out" \
         "${SWIFT_FILES[@]}"
 }

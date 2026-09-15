@@ -54,7 +54,6 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var hingeFoldSection: NSStackView!
     private var hingeNearSection: NSStackView!
     private var hingeEnableToggle: NSSwitch!
-    private var hingeStyleSegment: NSSegmentedControl!
     private var hingeIntensitySlider: NSSlider!
     private var hingeIntensityValueLabel: NSTextField!
     private var hingeClearStepper: NSStepper!
@@ -69,6 +68,8 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var hingeRecordingButton: NSButton!
     /// Throttle for the live lid-angle readout (sensor posts up to 60 Hz).
     private var hingeAngleLastPaint: CFAbsoluteTime = 0
+    /// True after the user clicked Allow…; the grant only applies after relaunch.
+    private var hingeAwaitingRelaunch = false
 
     // MARK: Library
     private var libraryStack: NSStackView!
@@ -741,22 +742,14 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         hingeEnableToggle = smallSwitch(target: self, action: #selector(hingeEnableChanged))
         let enableRow = makeRow(icon: "power", title: "Fold on lid close", control: hingeEnableToggle)
 
-        hingeStyleSegment = NSSegmentedControl(labels: ["Hinge tilt", "Blur & dim"],
-                                               trackingMode: .selectOne,
-                                               target: self,
-                                               action: #selector(hingeStyleChanged))
-        hingeStyleSegment.controlSize = .small
-        hingeStyleSegment.selectedSegment = 0
-        let styleRow = makeRow(icon: "rectangle.3.group", title: "Style", control: hingeStyleSegment)
-
-        hingeIntensitySlider = NSSlider(value: 70, minValue: 20, maxValue: 100,
+        hingeIntensitySlider = NSSlider(value: 50, minValue: 20, maxValue: 100,
                                         target: self, action: #selector(hingeIntensityChanged))
         hingeIntensitySlider.controlSize = .small
         hingeIntensitySlider.isContinuous = true
         hingeIntensitySlider.translatesAutoresizingMaskIntoConstraints = false
         hingeIntensitySlider.widthAnchor.constraint(equalToConstant: 200).isActive = true
 
-        hingeIntensityValueLabel = NSTextField(labelWithString: "70%")
+        hingeIntensityValueLabel = NSTextField(labelWithString: "50%")
         hingeIntensityValueLabel.alignment = .right
         hingeIntensityValueLabel.font = NSFont.systemFont(ofSize: 12)
         hingeIntensityValueLabel.textColor = .secondaryLabelColor
@@ -794,13 +787,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         clearCluster.alignment = .centerY
         let clearRow = makeRow(icon: "angle", title: "Start folding at", control: clearCluster)
 
-        let foldCard = makeCard([enableRow, styleRow, intensityRow, clearRow])
+        let foldCard = makeCard([enableRow, intensityRow, clearRow])
         hingeFoldSection = makeSection(symbol: "laptopcomputer", title: "Lid fold", content: foldCard)
 
         // ── Near closed card ──
         hingePauseToggle = smallSwitch(target: self, action: #selector(hingePauseChanged))
         let pauseRow = makeRow(icon: "pause.rectangle",
-                               title: "Pause video below \(Int(Preferences.shared.hingePauseBelow))°",
+                               title: "Pause video while folded",
                                control: hingePauseToggle)
 
         hingeFadeToggle = smallSwitch(target: self, action: #selector(hingeFadeChanged))
@@ -876,11 +869,10 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         let prefs = Preferences.shared
         let lid = (NSApp.delegate as? AppDelegate)?.lid
         let sensorAvailable = lid?.isAvailable ?? false
-        let recordingAllowed = CGPreflightScreenCaptureAccess()
+        let recordingAllowed = LidFoldOverlay.screenRecordingAllowed
 
         hingeEnableToggle.state = prefs.hingeFoldEnabled ? .on : .off
-        hingeStyleSegment.selectedSegment = (prefs.hingeStyle == .hingeTilt) ? 0 : 1
-        let intensity = prefs.hingeIntensity(for: prefs.hingeStyle)
+        let intensity = prefs.hingeIntensity
         hingeIntensitySlider.doubleValue = intensity * 100
         hingeIntensityValueLabel.stringValue = "\(Int((intensity * 100).rounded()))%"
         hingeClearStepper.doubleValue = prefs.hingeClearAngle
@@ -901,8 +893,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         if recordingAllowed {
             hingeRecordingStatusLabel.stringValue = "Allowed"
             hingeRecordingButton.isHidden = true
+        } else if hingeAwaitingRelaunch {
+            hingeRecordingStatusLabel.stringValue = "Relaunch LiveWall to finish"
+            hingeRecordingButton.title = "Relaunch"
+            hingeRecordingButton.isHidden = false
         } else {
             hingeRecordingStatusLabel.stringValue = "Not allowed"
+            hingeRecordingButton.title = "Allow…"
             hingeRecordingButton.isHidden = false
         }
     }
@@ -2714,9 +2711,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     // MARK: Hinge actions
 
     /// Every Hinge control funnels through here after writing its pref.
-    /// Step 2 wires the overlay rebuild; for now it only refreshes pausing.
+    /// rebuildHingeOverlay() is idempotent, so calling it per change is fine.
     private func hingeSettingsChanged() {
-        (NSApp.delegate as? AppDelegate)?.refreshPowerPause()
+        let app = NSApp.delegate as? AppDelegate
+        app?.rebuildHingeOverlay()
+        app?.refreshPowerPause()
     }
 
     @objc private func hingeEnableChanged() {
@@ -2724,20 +2723,10 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         hingeSettingsChanged()
     }
 
-    @objc private func hingeStyleChanged() {
-        let style: LidFoldStyle = hingeStyleSegment.selectedSegment == 0 ? .hingeTilt : .blurDim
-        Preferences.shared.hingeStyle = style
-        // Intensity is per style, so swap the slider to the new style's value.
-        let intensity = Preferences.shared.hingeIntensity(for: style)
-        hingeIntensitySlider.doubleValue = intensity * 100
-        hingeIntensityValueLabel.stringValue = "\(Int((intensity * 100).rounded()))%"
-        hingeSettingsChanged()
-    }
-
     @objc private func hingeIntensityChanged() {
         let pct = hingeIntensitySlider.doubleValue.rounded()
         hingeIntensityValueLabel.stringValue = "\(Int(pct))%"
-        Preferences.shared.setHingeIntensity(pct / 100, for: Preferences.shared.hingeStyle)
+        Preferences.shared.hingeIntensity = pct / 100
         hingeSettingsChanged()
     }
 
@@ -2759,10 +2748,28 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func hingeAllowRecordingClicked() {
-        // Step 2 wires the real consent flow (CGRequestScreenCaptureAccess +
-        // relaunch). Until then, send the user to the System Settings pane.
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
+        if hingeAwaitingRelaunch {
+            relaunchApp()
+            return
+        }
+        if !LidFoldOverlay.requestScreenRecording() {
+            // Declined earlier, or the dialog can't show again. Send them to the pane.
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+        // macOS applies a new Screen Recording grant on the next launch.
+        hingeAwaitingRelaunch = true
+        hingeRecordingStatusLabel.stringValue = "Relaunch LiveWall to finish"
+        hingeRecordingButton.title = "Relaunch"
+        hingeRecordingButton.isHidden = false
+    }
+
+    private func relaunchApp() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 
