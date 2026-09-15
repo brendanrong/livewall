@@ -21,8 +21,8 @@ LiveWall lives in the menu bar (look for the layered-rectangles + play icon, top
 - **Multi-display** — paint on every connected display, or pick which ones. Each display can have its own source override.
 - **Power saving** — pause when on battery, pause when any app is fullscreen.
 - **Global hotkey** — toggle the wallpaper on/off from anywhere (default ⌘⌥P, configurable).
-- **Generate** — type a prompt (or drop in a start frame) and get a new wallpaper from one of six current video models: Hailuo 03 (1440p or 4K), Seedance 2.5, Veo 3.1 (up to 4K), Kling 3.0 Turbo, Wan 3.0, FLUX 3 Video. Generations bill to my API account; the cost shown on the button is an estimate.
-- **Featured and Library** — curated wallpapers ready to use, plus everything you've generated or dropped into `~/Movies/LiveWall/Library/`.
+- **Generate** — type a prompt (or drop in a start frame) and get a new wallpaper from one of seven current video models: Hailuo 03 (1440p or 4K), Seedance 2.5, Veo 3.1 (up to 4K), Kling 3.0 Turbo, Wan 3.0, FLUX 3 Video, Seedance 2.0 (1080p or 4K). Generations bill to my API account; the cost shown on the button is an estimate.
+- **Featured and Library** — curated wallpapers ready to use, plus everything you've generated or dropped into `~/Movies/LiveWall/Library/`. **Rotate Through Library** (menu bar or Library tab) turns the whole Library into a rotating playlist.
 - **Hinge fold** — on MacBooks with a lid angle sensor, the whole desktop folds as you close the lid: the picture holds still in space while the glass sweeps through it, frosting and dimming to black. Needs Screen Recording permission; one frame is captured per fold and never saved or sent. Macs without the sensor get a short unfold of the wallpaper on wake instead.
 
 Settings persist across launches. Enable Launch at Login from the General pane if you want LiveWall up on boot.
