@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let hotkey = HotkeyManager()
     let battery = BatteryMonitor()
     let fullscreen = FullscreenMonitor()
+    let lid = LidAngleMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Install a main menu (with at least an Edit menu) so text fields
@@ -22,6 +23,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.prefsWindow.show()
         })
         controller.start()
+
+        // Lid-angle sensor. No-op on Macs that don't expose it.
+        lid.start()
 
         applyHotkeyFromPrefs()
 
@@ -50,10 +54,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // invisible apart from the menu bar icon, which is easy to miss.
         // Tiny delay so the menu bar icon paints first — gives spatial
         // context for where the app lives.
+        // If the lid sensor exists but Screen Recording isn't granted yet,
+        // land on the Hinge pane so the permission ask is the first thing
+        // they see.
         if !Preferences.shared.hasCompletedFirstLaunch {
             Preferences.shared.hasCompletedFirstLaunch = true
+            let needsPermission = lid.isAvailable && !CGPreflightScreenCaptureAccess()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.prefsWindow.show()
+                if needsPermission {
+                    self?.prefsWindow.show(section: .hinge)
+                } else {
+                    self?.prefsWindow.show()
+                }
             }
         }
 

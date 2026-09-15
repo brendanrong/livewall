@@ -49,6 +49,27 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private var pauseBatteryToggle: NSSwitch!
     private var pauseFullscreenToggle: NSSwitch!
 
+    // MARK: Hinge
+    private var hingeCallout: NSView!
+    private var hingeFoldSection: NSStackView!
+    private var hingeNearSection: NSStackView!
+    private var hingeEnableToggle: NSSwitch!
+    private var hingeStyleSegment: NSSegmentedControl!
+    private var hingeIntensitySlider: NSSlider!
+    private var hingeIntensityValueLabel: NSTextField!
+    private var hingeClearStepper: NSStepper!
+    private var hingeClearValueLabel: NSTextField!
+    private var hingePauseToggle: NSSwitch!
+    private var hingeFadeToggle: NSSwitch!
+    private var hingeAngleLabel: NSTextField!
+    private var hingeNoSensorLabel: NSTextField!
+    private var hingeSensorCard: NSView!
+    private var hingeNoSensorCard: NSView!
+    private var hingeRecordingStatusLabel: NSTextField!
+    private var hingeRecordingButton: NSButton!
+    /// Throttle for the live lid-angle readout (sensor posts up to 60 Hz).
+    private var hingeAngleLastPaint: CFAbsoluteTime = 0
+
     // MARK: Library
     private var libraryStack: NSStackView!
     private var libraryStatusLabel: NSTextField!
@@ -140,6 +161,13 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         showSection(.about)
     }
 
+    /// Open Settings on a specific pane. First launch uses this to land on
+    /// Hinge when the lid sensor exists but Screen Recording isn't granted.
+    func show(section: PrefsSection) {
+        show()
+        showSection(section)
+    }
+
     // MARK: - UI assembly
 
     private func buildUI() {
@@ -195,6 +223,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
             title: "Playback",
             subtitle: "Audio, rotation, and global shortcut",
             content: buildPlaybackPane()
+        )
+        sectionViews[.hinge] = buildPaneShell(
+            title: "Hinge",
+            subtitle: "Fold the desktop as you close the lid",
+            content: buildHingePane()
         )
         sectionViews[.library] = buildPaneShell(
             title: "Library",
@@ -665,6 +698,226 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         pane.setHuggingPriority(.defaultLow, for: .horizontal)
         fillWidth(pane)
         return pane
+    }
+
+    // MARK: Hinge
+
+    private func buildHingePane() -> NSView {
+        // ── Screen Recording callout (only while not yet granted) ──
+        let calloutText = NSTextField(wrappingLabelWithString:
+            "Allow Screen Recording to fold the whole desktop. LiveWall reads the built-in display only while the lid is moving. Nothing is saved or sent.")
+        calloutText.font = NSFont.systemFont(ofSize: 12)
+        calloutText.textColor = .labelColor
+        calloutText.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let calloutButton = NSButton(title: "Allow…", target: self, action: #selector(hingeAllowRecordingClicked))
+        calloutButton.bezelStyle = .rounded
+        calloutButton.controlSize = .small
+        calloutButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let calloutRow = NSStackView(views: [calloutText, calloutButton])
+        calloutRow.orientation = .horizontal
+        calloutRow.alignment = .centerY
+        calloutRow.spacing = 12
+        calloutRow.distribution = .fill
+        calloutRow.translatesAutoresizingMaskIntoConstraints = false
+        calloutRow.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+
+        let callout = NSView()
+        callout.wantsLayer = true
+        callout.layer?.cornerRadius = 10
+        callout.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        callout.translatesAutoresizingMaskIntoConstraints = false
+        callout.addSubview(calloutRow)
+        NSLayoutConstraint.activate([
+            calloutRow.topAnchor.constraint(equalTo: callout.topAnchor),
+            calloutRow.bottomAnchor.constraint(equalTo: callout.bottomAnchor),
+            calloutRow.leadingAnchor.constraint(equalTo: callout.leadingAnchor),
+            calloutRow.trailingAnchor.constraint(equalTo: callout.trailingAnchor),
+        ])
+        hingeCallout = callout
+
+        // ── Lid fold card ──
+        hingeEnableToggle = smallSwitch(target: self, action: #selector(hingeEnableChanged))
+        let enableRow = makeRow(icon: "power", title: "Fold on lid close", control: hingeEnableToggle)
+
+        hingeStyleSegment = NSSegmentedControl(labels: ["Hinge tilt", "Blur & dim"],
+                                               trackingMode: .selectOne,
+                                               target: self,
+                                               action: #selector(hingeStyleChanged))
+        hingeStyleSegment.controlSize = .small
+        hingeStyleSegment.selectedSegment = 0
+        let styleRow = makeRow(icon: "rectangle.3.group", title: "Style", control: hingeStyleSegment)
+
+        hingeIntensitySlider = NSSlider(value: 70, minValue: 20, maxValue: 100,
+                                        target: self, action: #selector(hingeIntensityChanged))
+        hingeIntensitySlider.controlSize = .small
+        hingeIntensitySlider.isContinuous = true
+        hingeIntensitySlider.translatesAutoresizingMaskIntoConstraints = false
+        hingeIntensitySlider.widthAnchor.constraint(equalToConstant: 200).isActive = true
+
+        hingeIntensityValueLabel = NSTextField(labelWithString: "70%")
+        hingeIntensityValueLabel.alignment = .right
+        hingeIntensityValueLabel.font = NSFont.systemFont(ofSize: 12)
+        hingeIntensityValueLabel.textColor = .secondaryLabelColor
+        hingeIntensityValueLabel.translatesAutoresizingMaskIntoConstraints = false
+        hingeIntensityValueLabel.widthAnchor.constraint(equalToConstant: 40).isActive = true
+
+        let intensityCluster = NSStackView(views: [hingeIntensitySlider, hingeIntensityValueLabel])
+        intensityCluster.orientation = .horizontal
+        intensityCluster.spacing = 8
+        intensityCluster.alignment = .centerY
+        let intensityRow = makeRow(icon: "dial.medium", title: "Intensity", control: intensityCluster)
+
+        hingeClearStepper = NSStepper()
+        hingeClearStepper.minValue = 60
+        hingeClearStepper.maxValue = 140
+        hingeClearStepper.increment = 5
+        hingeClearStepper.intValue = 110
+        hingeClearStepper.controlSize = .small
+        hingeClearStepper.target = self
+        hingeClearStepper.action = #selector(hingeClearAngleChanged)
+
+        hingeClearValueLabel = NSTextField(labelWithString: "110")
+        hingeClearValueLabel.alignment = .right
+        hingeClearValueLabel.font = NSFont.systemFont(ofSize: 12)
+        hingeClearValueLabel.translatesAutoresizingMaskIntoConstraints = false
+        hingeClearValueLabel.widthAnchor.constraint(equalToConstant: 32).isActive = true
+
+        let degreesText = NSTextField(labelWithString: "degrees")
+        degreesText.font = NSFont.systemFont(ofSize: 12)
+        degreesText.textColor = .secondaryLabelColor
+
+        let clearCluster = NSStackView(views: [hingeClearValueLabel, hingeClearStepper, degreesText])
+        clearCluster.orientation = .horizontal
+        clearCluster.spacing = 6
+        clearCluster.alignment = .centerY
+        let clearRow = makeRow(icon: "angle", title: "Start folding at", control: clearCluster)
+
+        let foldCard = makeCard([enableRow, styleRow, intensityRow, clearRow])
+        hingeFoldSection = makeSection(symbol: "laptopcomputer", title: "Lid fold", content: foldCard)
+
+        // ── Near closed card ──
+        hingePauseToggle = smallSwitch(target: self, action: #selector(hingePauseChanged))
+        let pauseRow = makeRow(icon: "pause.rectangle",
+                               title: "Pause video below \(Int(Preferences.shared.hingePauseBelow))°",
+                               control: hingePauseToggle)
+
+        hingeFadeToggle = smallSwitch(target: self, action: #selector(hingeFadeChanged))
+        let fadeRow = makeRow(icon: "circle.lefthalf.filled",
+                              title: "Fade to black before sleep",
+                              control: hingeFadeToggle)
+
+        let nearCard = makeCard([pauseRow, fadeRow])
+        hingeNearSection = makeSection(symbol: "moon.zzz", title: "Near closed", content: nearCard)
+
+        // ── Sensor card ──
+        hingeAngleLabel = NSTextField(labelWithString: "…")
+        hingeAngleLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        hingeAngleLabel.alignment = .right
+        let angleRow = makeRow(icon: "laptopcomputer", title: "Lid angle", control: hingeAngleLabel)
+
+        hingeRecordingStatusLabel = NSTextField(labelWithString: "")
+        hingeRecordingStatusLabel.font = NSFont.systemFont(ofSize: 12)
+        hingeRecordingStatusLabel.textColor = .secondaryLabelColor
+
+        hingeRecordingButton = NSButton(title: "Allow…", target: self, action: #selector(hingeAllowRecordingClicked))
+        hingeRecordingButton.bezelStyle = .rounded
+        hingeRecordingButton.controlSize = .small
+
+        let recordingCluster = NSStackView(views: [hingeRecordingStatusLabel, hingeRecordingButton])
+        recordingCluster.orientation = .horizontal
+        recordingCluster.spacing = 8
+        recordingCluster.alignment = .centerY
+        let recordingRow = makeRow(icon: "record.circle", title: "Screen Recording", control: recordingCluster)
+
+        hingeNoSensorLabel = NSTextField(wrappingLabelWithString:
+            "This Mac doesn't expose the lid sensor. LiveWall unfolds the wallpaper when the display wakes instead.")
+        hingeNoSensorLabel.font = NSFont.systemFont(ofSize: 12)
+        hingeNoSensorLabel.textColor = .secondaryLabelColor
+        let noSensorRow = NSStackView(views: [hingeNoSensorLabel])
+        noSensorRow.orientation = .horizontal
+        noSensorRow.alignment = .centerY
+        noSensorRow.translatesAutoresizingMaskIntoConstraints = false
+        noSensorRow.edgeInsets = NSEdgeInsets(top: 7, left: 0, bottom: 7, right: 0)
+
+        // Two cards, one visible at a time, so hiding rows never leaves a
+        // stray hairline separator behind.
+        hingeSensorCard = makeCard([angleRow, recordingRow])
+        hingeNoSensorCard = makeCard([noSensorRow])
+        let sensorContent = NSStackView(views: [hingeSensorCard, hingeNoSensorCard])
+        sensorContent.orientation = .vertical
+        sensorContent.alignment = .leading
+        sensorContent.spacing = 0
+        sensorContent.setHuggingPriority(.defaultLow, for: .horizontal)
+        fillWidth(sensorContent)
+        let sensorSection = makeSection(symbol: "gauge.with.dots.needle.33percent", title: "Sensor", content: sensorContent)
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(hingeAngleDidChange),
+            name: LidAngleMonitor.angleChangedNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(hingeAvailabilityDidChange),
+            name: LidAngleMonitor.availabilityChangedNotification, object: nil)
+
+        let pane = NSStackView(views: [callout, hingeFoldSection, hingeNearSection, sensorSection])
+        pane.orientation = .vertical
+        pane.alignment = .leading
+        pane.spacing = 20
+        pane.distribution = .fill
+        pane.setHuggingPriority(.defaultLow, for: .horizontal)
+        fillWidth(pane)
+        return pane
+    }
+
+    /// Refresh every Hinge control from prefs and live state. Called from
+    /// loadValues() and whenever sensor availability or permission flips.
+    private func refreshHingeUI() {
+        let prefs = Preferences.shared
+        let lid = (NSApp.delegate as? AppDelegate)?.lid
+        let sensorAvailable = lid?.isAvailable ?? false
+        let recordingAllowed = CGPreflightScreenCaptureAccess()
+
+        hingeEnableToggle.state = prefs.hingeFoldEnabled ? .on : .off
+        hingeStyleSegment.selectedSegment = (prefs.hingeStyle == .hingeTilt) ? 0 : 1
+        let intensity = prefs.hingeIntensity(for: prefs.hingeStyle)
+        hingeIntensitySlider.doubleValue = intensity * 100
+        hingeIntensityValueLabel.stringValue = "\(Int((intensity * 100).rounded()))%"
+        hingeClearStepper.doubleValue = prefs.hingeClearAngle
+        hingeClearValueLabel.stringValue = "\(Int(prefs.hingeClearAngle))"
+        hingePauseToggle.state = prefs.hingePauseNearClose ? .on : .off
+        hingeFadeToggle.state = prefs.hingeFadeToBlack ? .on : .off
+
+        // Sensor present: full pane. Missing: collapse to the one-line explanation.
+        hingeCallout.isHidden = !sensorAvailable || recordingAllowed
+        hingeFoldSection.isHidden = !sensorAvailable
+        hingeNearSection.isHidden = !sensorAvailable
+        hingeSensorCard.isHidden = !sensorAvailable
+        hingeNoSensorCard.isHidden = sensorAvailable
+
+        if let lid = lid, sensorAvailable {
+            hingeAngleLabel.stringValue = "\(Int(lid.angle.rounded()))°"
+        }
+        if recordingAllowed {
+            hingeRecordingStatusLabel.stringValue = "Allowed"
+            hingeRecordingButton.isHidden = true
+        } else {
+            hingeRecordingStatusLabel.stringValue = "Not allowed"
+            hingeRecordingButton.isHidden = false
+        }
+    }
+
+    @objc private func hingeAngleDidChange() {
+        // Sensor posts up to 60 Hz; repaint the readout at ~4 Hz.
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - hingeAngleLastPaint >= 0.25 else { return }
+        hingeAngleLastPaint = now
+        guard let lid = (NSApp.delegate as? AppDelegate)?.lid, lid.isAvailable else { return }
+        hingeAngleLabel?.stringValue = "\(Int(lid.angle.rounded()))°"
+    }
+
+    @objc private func hingeAvailabilityDidChange() {
+        refreshHingeUI()
     }
 
     // MARK: Library
@@ -1951,6 +2204,8 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         hotkeyRecorder.setHotkey(keyCode: prefs.hotkeyKeyCode, modifiers: prefs.hotkeyModifiers)
         hotkeyToggle.state = prefs.hotkeyEnabled ? .on : .off
         hotkeyRecorder.isEnabled = prefs.hotkeyEnabled
+
+        refreshHingeUI()
     }
 
     private func rebuildScreenCheckboxes() {
@@ -2454,6 +2709,61 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     @objc private func pauseFullscreenChanged() {
         Preferences.shared.pauseOnFullscreen = (pauseFullscreenToggle.state == .on)
         (NSApp.delegate as? AppDelegate)?.refreshPowerPause()
+    }
+
+    // MARK: Hinge actions
+
+    /// Every Hinge control funnels through here after writing its pref.
+    /// Step 2 wires the overlay rebuild; for now it only refreshes pausing.
+    private func hingeSettingsChanged() {
+        (NSApp.delegate as? AppDelegate)?.refreshPowerPause()
+    }
+
+    @objc private func hingeEnableChanged() {
+        Preferences.shared.hingeFoldEnabled = (hingeEnableToggle.state == .on)
+        hingeSettingsChanged()
+    }
+
+    @objc private func hingeStyleChanged() {
+        let style: LidFoldStyle = hingeStyleSegment.selectedSegment == 0 ? .hingeTilt : .blurDim
+        Preferences.shared.hingeStyle = style
+        // Intensity is per style, so swap the slider to the new style's value.
+        let intensity = Preferences.shared.hingeIntensity(for: style)
+        hingeIntensitySlider.doubleValue = intensity * 100
+        hingeIntensityValueLabel.stringValue = "\(Int((intensity * 100).rounded()))%"
+        hingeSettingsChanged()
+    }
+
+    @objc private func hingeIntensityChanged() {
+        let pct = hingeIntensitySlider.doubleValue.rounded()
+        hingeIntensityValueLabel.stringValue = "\(Int(pct))%"
+        Preferences.shared.setHingeIntensity(pct / 100, for: Preferences.shared.hingeStyle)
+        hingeSettingsChanged()
+    }
+
+    @objc private func hingeClearAngleChanged() {
+        let degrees = hingeClearStepper.doubleValue
+        hingeClearValueLabel.stringValue = "\(Int(degrees))"
+        Preferences.shared.hingeClearAngle = degrees
+        hingeSettingsChanged()
+    }
+
+    @objc private func hingePauseChanged() {
+        Preferences.shared.hingePauseNearClose = (hingePauseToggle.state == .on)
+        hingeSettingsChanged()
+    }
+
+    @objc private func hingeFadeChanged() {
+        Preferences.shared.hingeFadeToBlack = (hingeFadeToggle.state == .on)
+        hingeSettingsChanged()
+    }
+
+    @objc private func hingeAllowRecordingClicked() {
+        // Step 2 wires the real consent flow (CGRequestScreenCaptureAccess +
+        // relaunch). Until then, send the user to the System Settings pane.
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func hotkeyToggleChanged() {

@@ -5,7 +5,7 @@ enum PrefsSection: Int, CaseIterable {
     // Content tabs (Featured / Library / Generate) come first because
     // changing the wallpaper is what users actually open Settings for.
     // Config tabs (Display / Playback / General) follow. About is last.
-    case featured, library, generate, display, playback, general, about
+    case featured, library, generate, display, playback, hinge, general, about
 
     var title: String {
         switch self {
@@ -14,6 +14,7 @@ enum PrefsSection: Int, CaseIterable {
         case .generate: return "Generate"
         case .display:  return "Display"
         case .playback: return "Playback"
+        case .hinge:    return "Hinge"
         case .general:  return "General"
         case .about:    return "About"
         }
@@ -24,6 +25,7 @@ enum PrefsSection: Int, CaseIterable {
         case .general:  return "general"
         case .display:  return "display"
         case .playback: return "playback"
+        case .hinge:    return "hinge"
         case .library:  return "library"
         case .featured: return "featured"
         case .generate: return "generate"
@@ -36,6 +38,7 @@ enum PrefsSection: Int, CaseIterable {
         case .general:  return "gearshape"
         case .display:  return "display"
         case .playback: return "play.rectangle"
+        case .hinge:    return "laptopcomputer"
         case .library:  return "square.grid.2x2"
         case .featured: return "star"
         case .generate: return "sparkles"
