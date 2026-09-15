@@ -204,6 +204,114 @@
   }
   footer a:hover { color: var(--text); }
   .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  /* Spotlight: Hinge fold */
+  .spotlight {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    align-items: center;
+    border: 0.5px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    margin: 0 0 40px;
+    background: linear-gradient(180deg, rgba(232,51,111,0.06), rgba(216,90,48,0.02) 60%, transparent);
+  }
+  .pill {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--brand-pink);
+    border: 0.5px solid rgba(232,51,111,0.45);
+    border-radius: 999px;
+    padding: 3px 9px;
+    margin-bottom: 12px;
+  }
+  .spotlight h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.4px; margin-bottom: 8px; }
+  .spotlight p { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+  .spotlight p + p { margin-top: 8px; }
+  .spotlight small { display: block; margin-top: 12px; font-size: 12px; color: var(--text-tertiary); }
+  /* The laptop */
+  .hinge-scene { display: flex; justify-content: center; align-items: flex-end; height: 220px; perspective: 900px; perspective-origin: 50% 30%; }
+  .laptop { position: relative; width: 260px; transform: rotateX(8deg); transform-style: preserve-3d; }
+  .lid {
+    position: relative;
+    width: 260px;
+    height: 164px;
+    border-radius: 10px 10px 4px 4px;
+    background: #2a2a2e;
+    border: 1px solid #3a3a40;
+    padding: 7px 7px 9px;
+    transform-origin: 50% 100%;
+    transform-style: preserve-3d;
+    animation: lid-close 7s cubic-bezier(.45,.05,.55,.95) infinite;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 5px; background: #000; overflow: hidden; }
+  .desktop {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 50% at 30% 35%, rgba(232,51,111,0.75), transparent 70%),
+      radial-gradient(50% 45% at 75% 65%, rgba(216,90,48,0.8), transparent 70%),
+      radial-gradient(40% 40% at 60% 20%, rgba(45,212,164,0.35), transparent 70%),
+      linear-gradient(180deg, #17121c, #0b0a10);
+    transform-origin: 50% 100%;
+    animation: desk-fold 7s cubic-bezier(.45,.05,.55,.95) infinite;
+  }
+  .desktop::after {
+    /* a few desktop icons so there's something to see holding still */
+    content: "";
+    position: absolute; top: 10px; right: 10px; width: 14px; height: 44px;
+    background:
+      linear-gradient(#ddd, #ddd) 0 0 / 14px 11px no-repeat,
+      linear-gradient(#ddd, #ddd) 0 16px / 14px 11px no-repeat,
+      linear-gradient(#ddd, #ddd) 0 32px / 14px 11px no-repeat;
+    border-radius: 2px; opacity: 0.85;
+  }
+  .dock { position: absolute; left: 50%; bottom: 5px; width: 60%; height: 8px; transform: translateX(-50%); border-radius: 4px; background: rgba(255,255,255,0.18); }
+  .dim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.95), rgba(0,0,0,0.15) 85%, transparent); opacity: 0; animation: dim-fold 7s cubic-bezier(.45,.05,.55,.95) infinite; }
+  .black { position: absolute; inset: 0; background: #000; opacity: 0; animation: black-fold 7s linear infinite; }
+  .base {
+    position: relative;
+    width: 300px; height: 12px; margin-left: -20px; margin-top: -1px;
+    border-radius: 3px 3px 8px 8px;
+    background: linear-gradient(180deg, #3a3a40, #202024);
+    border: 1px solid #3a3a40;
+    box-shadow: 0 14px 30px rgba(0,0,0,0.6);
+  }
+  .base::before { content: ""; position: absolute; left: 50%; top: 2px; width: 70px; height: 3px; transform: translateX(-50%); border-radius: 0 0 3px 3px; background: #101013; }
+  @keyframes lid-close {
+    0%, 18%  { transform: rotateX(0deg); }
+    58%, 66% { transform: rotateX(-78deg); }
+    100%     { transform: rotateX(0deg); }
+  }
+  /* The picture holds still in space: as the glass tilts toward you the picture compresses toward the hinge, narrows at the top, and frosts. */
+  @keyframes desk-fold {
+    0%, 18%  { transform: scaleY(1); clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); filter: blur(0); }
+    58%, 66% { transform: scaleY(0.42); clip-path: polygon(22% 0, 78% 0, 100% 100%, 0 100%); filter: blur(4px); }
+    100%     { transform: scaleY(1); clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); filter: blur(0); }
+  }
+  @keyframes dim-fold {
+    0%, 18%  { opacity: 0; }
+    58%, 66% { opacity: 0.9; }
+    100%     { opacity: 0; }
+  }
+  @keyframes black-fold {
+    0%, 52%  { opacity: 0; }
+    58%, 66% { opacity: 1; }
+    72%, 100% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lid, .desktop, .dim, .black { animation-duration: 0s; animation-iteration-count: 1; }
+    .lid { transform: rotateX(-40deg); }
+    .desktop { transform: scaleY(0.7); clip-path: polygon(12% 0, 88% 0, 100% 100%, 0 100%); filter: blur(2px); }
+    .dim { opacity: 0.5; }
+  }
+  @media (max-width: 540px) {
+    .spotlight { grid-template-columns: 1fr; padding: 22px; }
+    .hinge-scene { height: 190px; }
+  }
   /* Features */
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 8px 0 40px; }
   .feature { border: 0.5px solid var(--border); border-radius: 12px; padding: 16px 18px; }
@@ -250,6 +358,28 @@
 
   <section class="blurb">
     <p>Built on late nights to keep my OLED happy. If your desktop could use a bit more life, give it a spin.</p>
+  </section>
+
+  <section class="spotlight" aria-label="New: Hinge fold">
+    <div class="spotlight-copy">
+      <span class="pill">New in 2.7</span>
+      <h2>Hinge fold</h2>
+      <p>Close the lid and the whole desktop folds with it, driven by the MacBook's lid angle sensor. The picture holds still in space while the glass sweeps through it, frosting toward the top and dimming into black before the Mac sleeps.</p>
+      <p>Open slowly and it unwinds with you. Rest the lid and it lets go so the desktop is usable.</p>
+      <small>Needs Screen Recording. One frame is captured per fold, never saved or sent. Macs without the sensor get a short unfold on wake instead.</small>
+    </div>
+    <div class="hinge-scene" aria-hidden="true">
+      <div class="laptop">
+        <div class="lid">
+          <div class="screen">
+            <div class="desktop"><div class="dock"></div></div>
+            <div class="dim"></div>
+            <div class="black"></div>
+          </div>
+        </div>
+        <div class="base"></div>
+      </div>
+    </div>
   </section>
 
   <section class="features" aria-label="Features">
