@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import IOKit
 import IOKit.hid
@@ -47,13 +48,20 @@ final class LidAngleMonitor {
     private static let activeInterval: TimeInterval = 1.0 / 60.0
     private static let maxFailures = 5
     private static let noOptions = IOOptionBits(kIOHIDOptionsTypeNone)
-    /// The sensor is sometimes not enumerable, or still held by a previous instance, in the first
-    /// seconds after launch. Keep looking for it instead of giving up for the whole run.
+    /// The sensor is sometimes not enumerable (first seconds after launch, still held by a previous
+    /// instance, or the Mac was asleep and reads failed). Keep looking for it, and never give up: a
+    /// long sleep would otherwise exhaust a bounded retry while the machine is still asleep. Fast
+    /// for the first half minute, then a slow heartbeat.
     private static let rediscoverInterval: TimeInterval = 2
-    private static let rediscoverMaxAttempts = 15
+    private static let rediscoverSlowInterval: TimeInterval = 15
+    private static let rediscoverFastAttempts = 15
 
     init() {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, Self.noOptions)
+        // After wake the device is usually back within a second; retry right away instead of
+        // waiting for the heartbeat, and forgive read failures that happened while asleep.
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake),
+                                                          name: NSWorkspace.didWakeNotification, object: nil)
         let matching: [String: Any] = [
             kIOHIDVendorIDKey as String: 0x05AC,
             kIOHIDDeviceUsagePageKey as String: 0x0020,
@@ -66,8 +74,21 @@ final class LidAngleMonitor {
     }
 
     deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         stop()
         IOHIDManagerClose(manager, Self.noOptions)
+    }
+
+    @objc private func didWake() {
+        failures = 0
+        guard !isAvailable else { return }
+        rediscoverTimer?.invalidate()
+        rediscoverTimer = nil
+        rediscoverAttempts = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.rediscover()
+            self?.scheduleRediscovery()
+        }
     }
 
     // MARK: - Control
@@ -155,10 +176,13 @@ final class LidAngleMonitor {
     /// Look for the sensor again every few seconds, for a while. Runs when the device was not found
     /// at launch or stopped answering. On success, starts polling and tells the app.
     private func scheduleRediscovery() {
-        guard rediscoverTimer == nil, rediscoverAttempts < Self.rediscoverMaxAttempts else { return }
-        rediscoverTimer = Timer.scheduledTimer(withTimeInterval: Self.rediscoverInterval, repeats: true) { [weak self] _ in
+        guard rediscoverTimer == nil, !isAvailable else { return }
+        let interval = rediscoverAttempts < Self.rediscoverFastAttempts ? Self.rediscoverInterval : Self.rediscoverSlowInterval
+        let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.rediscover()
         }
+        t.tolerance = interval * 0.2
+        rediscoverTimer = t
     }
 
     private func rediscover() {
@@ -173,9 +197,11 @@ final class LidAngleMonitor {
             if isAvailable {
                 NotificationCenter.default.post(name: Self.availabilityChangedNotification, object: nil)
             }
-        } else if rediscoverAttempts >= Self.rediscoverMaxAttempts {
+        } else if rediscoverAttempts == Self.rediscoverFastAttempts {
+            // Drop to the slow heartbeat.
             rediscoverTimer?.invalidate()
             rediscoverTimer = nil
+            scheduleRediscovery()
         }
     }
 
